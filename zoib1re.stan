@@ -55,12 +55,12 @@ model {
   b0_j ~ normal(0, 5);
   b1_j ~ normal(0, 5);
   bp_j ~ normal(0, 5);
-  phi ~ student_t(7, 0, 25);
+  phi ~ student_t(3, 0, 25);
 
-  z0_g ~ normal(0, 1);
-  z1_g ~ normal(0, 1);
-  zp_g ~ normal(0, 1);
-  sigma_z ~ student_t(3, 0, 2);
+  z0_g ~ normal(0, 3);
+  z1_g ~ normal(0, 3);
+  zp_g ~ normal(0, 3);
+  sigma_z ~ student_t(3, 0, 3);
 
   z0_g ~ normal(0, sigma_z[1]);
   z1_g ~ normal(0, sigma_z[2]);

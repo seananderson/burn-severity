@@ -132,15 +132,16 @@ Real data:
 
 ```{r}
 d <- read_csv("ALL_SHOBS_2010_2014_PLOTS_MASTER_w_CO_FINAL_20171029.csv")
-d <- select(d, Firemort.BA.p, RdNBR, FIRE) %>% 
+d <- select(d, BOLESCORCH, RdNBR, FIRE) %>%
   na.omit() %>% as.data.frame() %>% as_tibble() %>% 
-  rename(y = Firemort.BA.p, x = RdNBR, group = FIRE) %>% 
+  rename(y = BOLESCORCH, x = RdNBR, group = FIRE) %>% 
   mutate(y0 = ifelse(y == 0, 1, 0),
     y1 = ifelse(y == 1, 1, 0),
     yp = ifelse(y == 0 | y == 1, NA, y),
     xscaled = arm::rescale(x),
-    group = as.factor(group),
-    group_id = as.integer(group))
+    group = as.factor(tolower(group)),
+    group_id = as.integer(group)) %>% 
+  arrange(group_id, x)
 
 dp <- filter(d, !is.na(yp))
 
@@ -148,10 +149,12 @@ N0 <- nrow(d)
 N1 <- nrow(d)
 Np <- nrow(dp)
 
-f <- y ~ xscaled + group - 1
-mm0 <- as.matrix(model.matrix(f, data = d))
-mm1 <- as.matrix(model.matrix(f, data = d))
-mmp <- as.matrix(model.matrix(f, data = dp))
+f0 <- y0 ~ xscaled + group - 1
+f1 <- y1 ~ xscaled + group - 1
+fp <- y ~ xscaled + group - 1
+mm0 <- as.matrix(model.matrix(f0, data = d))
+mm1 <- as.matrix(model.matrix(f1, data = d))
+mmp <- as.matrix(model.matrix(fp, data = dp))
 
 stan_dat <- list(
   N0 = N0, 
@@ -171,24 +174,24 @@ m <- optimizing(sm, data = stan_dat)
 
 m <- stan("zoib1.stan",
   data = stan_dat,
-  iter = 500L, chains = 4L,
+  iter = 1000L, chains = 4L,
   pars = c("b0_j", "b1_j", "bp_j", "phi")
 )
 m
 ```
 
 ```{r}
-Npred <- 300L
+Npred <- 200L
 d_pred <- expand.grid(
   xscaled = seq(min(d$xscaled), max(d$xscaled), length.out = Npred),
   group = unique(d$group), y = 1)
 e <- rstan::extract(m)
 
-mm_pred <- as.matrix(model.matrix(f, data = d_pred))
+mm_pred <- as.matrix(model.matrix(fp, data = d_pred))
 
 pred_p <- plogis(mm_pred %*% t(e$bp_j))
 plot(d_pred$xscaled, apply(pred_p, 1, median), ylim = c(0, 1), type = "p")
-points(xp, yp)
+points(dp$xscaled, dp$y)
 
 pred_0 <- plogis(mm_pred %*% t(e$b0_j))
 plot(d_pred$xscaled, apply(pred_0, 1, median), ylim = c(0, 1), type = "p")
@@ -217,10 +220,12 @@ ggplot(pred_df, aes(xscaled, est, ymin = lwr, ymax = upr, group = group)) +
 RE
 
 ```{r}
-f <- y ~ xscaled
-mm0 <- as.matrix(model.matrix(f, data = d))
-mm1 <- as.matrix(model.matrix(f, data = d))
-mmp <- as.matrix(model.matrix(f, data = dp))
+f0 <- y0 ~ xscaled
+f1 <- y1 ~ xscaled
+fp <- y ~ xscaled
+mm0 <- as.matrix(model.matrix(f0, data = d))
+mm1 <- as.matrix(model.matrix(f1, data = d))
+mmp <- as.matrix(model.matrix(fp, data = dp))
 
 stan_dat <- list(
   N0 = N0, 
@@ -240,50 +245,117 @@ stan_dat <- list(
   group_id1 = d$group_id,
   group_idp = dp$group_id
 )
-sm <- stan_model("zoib1re.stan")
-m <- optimizing(sm, data = stan_dat)
 
 m <- stan("zoib1re.stan",
   data = stan_dat,
-  iter = 500L, chains = 4L,
-  pars = c("b0_j", "b1_j", "bp_j", "phi", "sigma_z", "z0_g", "z1_g", "zp_g")
+  iter = 2000L, chains = 4L,
+  pars = c("b0_j", "b1_j", "bp_j", "phi", "sigma_z", "z0_g", "z1_g", "zp_g"),
+  control = list(adapt_delta = 0.95)
 )
 m
 ```
 
 ```{r}
-Npred <- 300L
+Npred <- 200L
 d_pred <- expand.grid(
   xscaled = seq(min(d$xscaled), max(d$xscaled), length.out = Npred),
   group_id = unique(d$group_id), y = 1)
 e <- rstan::extract(m)
 
-mm_pred <- as.matrix(model.matrix(f, data = d_pred))
+mm_pred <- as.matrix(model.matrix(fp, data = d_pred))
 
 pred_p <- plogis(mm_pred %*% t(e$bp_j))
-plot(d_pred$xscaled, apply(pred_p, 1, median), ylim = c(0, 1), type = "p")
-points(xp, yp)
-
 pred_0 <- plogis(mm_pred %*% t(e$b0_j))
-plot(d_pred$xscaled, apply(pred_0, 1, median), ylim = c(0, 1), type = "p")
-
 pred_1 <- plogis(mm_pred %*% t(e$b1_j))
-plot(d_pred$xscaled, apply(pred_1, 1, median), ylim = c(0, 1), type = "p")
+
+pred_p_re <- mm_pred %*% t(e$bp_j)
+pred_p_re <- apply(pred_p_re, 1, median)
+zp_g <- apply(e$zp_g, 2, median)
+
+pred_0_re <- mm_pred %*% t(e$b0_j)
+pred_0_re <- apply(pred_0_re, 1, median)
+z0_g <- apply(e$z0_g, 2, median)
+
+pred_1_re <- mm_pred %*% t(e$b1_j)
+pred_1_re <- apply(pred_1_re, 1, median)
+z1_g <- apply(e$z1_g, 2, median)
+
+d_pred$pred_p_re <- plogis(pred_p_re + rep(zp_g, each = Npred))
+d_pred$pred_0_re <- plogis(pred_0_re + rep(z0_g, each = Npred))
+d_pred$pred_1_re <- plogis(pred_1_re + rep(z1_g, each = Npred))
 
 y_pred <- (1 - pred_0) * (pred_1 + (1 - pred_1) * pred_p)
+d_pred$y_pred_re <- (1 - d_pred$pred_0_re) * (d_pred$pred_1_re + (1 - d_pred$pred_1_re) * d_pred$pred_p_re)
 
 pred_df <- data.frame(
   xscaled = d_pred$xscaled,
-  group = d_pred$group,
+  group = d_pred$group_id,
   est = apply(y_pred, 1, quantile, probs = 0.5),
   lwr = apply(y_pred, 1, quantile, probs = 0.025),
-  upr = apply(y_pred, 1, quantile, probs = 0.975)
+  upr = apply(y_pred, 1, quantile, probs = 0.975),
+  est_re = d_pred$y_pred_re,
+  x = d_pred$xscaled * 2 * sd(d$x) + mean(d$x)
 )
 
-ggplot(pred_df, aes(xscaled, est, ymin = lwr, ymax = upr)) +
-  geom_point(data = d, aes(xscaled, y, colour = group), 
+ggplot(pred_df, aes(x, est, ymin = lwr, ymax = upr)) +
+  geom_point(data = d, aes(x, y, colour = group), 
     inherit.aes = FALSE, alpha = 0.6) +
-  geom_ribbon(alpha = 0.5, fill = "grey50") +
-  geom_line(lwd = 1) +
+  geom_line(aes(y = est_re, group = as.factor(group)), 
+    col = "grey50", lty = 1, lwd = 0.2) +
+  geom_line(lwd = 1.5) +
+  geom_ribbon(alpha = 0.5, fill = "grey20") +
   ylim(0, 1)
 ```
+
+AUC
+
+```{r}
+mm <- as.matrix(model.matrix(fp, data = d))
+
+pred_p <- plogis(mm %*% t(e$bp_j))
+pred_0 <- plogis(mm %*% t(e$b0_j))
+pred_1 <- plogis(mm %*% t(e$b1_j))
+
+y_pred <- (1 - pred_0) * (pred_1 + (1 - pred_1) * pred_p)
+
+# https://gist.github.com/traversc/1446ebe1dcc2d84bccdca781d4f1fa2a
+fastROC <- function(probs, class) {
+  class_sorted <- class[order(probs, decreasing=T)]
+  TPR <- cumsum(class_sorted) / sum(class)
+  FPR <- cumsum(class_sorted == 0) / sum(class == 0)
+  return(data.frame(tpr=TPR, fpr=FPR))
+}
+fastAUC <- function(probs, class) {
+  x <- probs
+  y <- class
+  x1 = x[y==1]; n1 = length(x1); 
+  x2 = x[y==0]; n2 = length(x2);
+  r = rank(c(x1,x2))  
+  auc = (sum(r[1:n1]) - n1*(n1+1)/2) / n1 / n2
+  return(auc)
+}
+
+probs <- apply(y_pred, 1, median)
+thresh <- seq(0.05, 0.95, length.out = 15)
+
+auc_thresh <- function(thresh = 0.5) {
+  d$outcome <- ifelse(d$y > thresh, 1, 0)
+  fastAUC(class = d$outcome, probs = probs)
+}
+a <- sapply(thresh, auc_thresh)
+# hist(a)
+
+roc_thresh <- function(thresh = 0.5) {
+  d$outcome <- ifelse(d$y > thresh, 1, 0)
+  fastROC(class = d$outcome, probs = probs)
+}
+
+lab <- paste0("AUC = ", round(min(a), 2), " - ", round(max(a), 2))
+r <- plyr::ldply(thresh, roc_thresh)
+r$thresh <- rep(thresh, each = length(probs))
+ggplot(r, aes(fpr, tpr)) +
+  geom_line(aes(group = as.factor(thresh), colour = thresh), alpha = 0.9) +
+  scale_color_gradient2(mid = "grey75", midpoint = 0.5) +
+geom_text(data = data.frame(fpr = 0.75, tpr = 0.1), label = lab)
+```
+

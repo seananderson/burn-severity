@@ -38,7 +38,7 @@ model {
   b0_j ~ normal(0, 5);
   b1_j ~ normal(0, 5);
   bp_j ~ normal(0, 5);
-  phi ~ student_t(7, 0, 25);
+  phi ~ student_t(3, 0, 25);
 
   y0_i ~ bernoulli_logit(mu0);
   y1_i ~ bernoulli_logit(mu1);
