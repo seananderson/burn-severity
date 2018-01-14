@@ -1,0 +1,157 @@
+---
+title: "Playground"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+d <- read_csv("ALL_SHOBS_2010_2014_PLOTS_MASTER_w_CO_FINAL_20171029.csv")
+```
+
+
+```{r}
+set.seed(42)
+N <- 1000
+x <- arm::rescale(rnorm(N))
+b_0 <- c(-4, -3)
+b_1 <- c(-4, 3)
+b_prop <- c(0.2, 1.3)
+
+prob_0 <- plogis(cbind(rep(1, N), x) %*% b_0)
+plot(x, prob_0, ylim = c(0, 1))
+
+prob_1 <- plogis(cbind(rep(1, N), x) %*% b_1)
+plot(x, prob_1, ylim = c(0, 1))
+
+prop_mu <- plogis(cbind(rep(1, N), x) %*% b_prop)
+plot(x, prop_mu, ylim = c(0, 1))
+
+phi <- 20
+p <- prop_mu * phi
+q <- phi - prop_mu * phi
+
+y_0 <- c(FALSE, TRUE)[rbinom(N, size = 1, prob = prob_0) + 1]
+plot(x, y_0)
+y_1 <- c(FALSE, TRUE)[rbinom(N, size = 1, prob = prob_1 * (1 - prob_0)) + 1]
+plot(x, y_1)
+y_prop <- rbeta(N, shape1 = p, shape2 = q)
+plot(x, y_prop)
+
+y <- y_prop
+y[y_0 == TRUE] <- 0
+y[y_1 == TRUE] <- 1
+
+plot(x, prop_mu, ylim = c(0, 1))
+points(x, prob_1 + (1 - prob_1) * prop_mu, ylim = c(0, 1), col = "blue")
+
+plot(x, y, ylim = c(0, 1))
+y_true <- (1 - prob_0) * (prob_1 + (1 - prob_1) * prop_mu)
+o <- order(x)
+lines(x[o], y_true[o])
+```
+
+
+```{r}
+yp <- y[!y_0 & !y_1]
+xp <- x[!y_0 & !y_1]
+plot(xp, yp)
+
+y0 <- ifelse(y == 0, 1, 0)
+x0 <- x
+plot(x0, y0)
+
+y1 <- ifelse(y == 1, 1, 0)
+x1 <- x
+plot(x1, y1)
+
+N0 <- length(y0)
+N1 <- length(y1)
+Np <- length(yp)
+
+library(rstan)
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+m <- stan("zoib1.stan",
+  data = list(
+    N0 = N0, 
+    N1 = N1, 
+    Np = Np,
+    J = 2L,
+    X0_ij = cbind(rep(1, N0), x0),
+    X1_ij = cbind(rep(1, N1), x1),
+    Xp_ij = cbind(rep(1, Np), xp),
+    y0_i = y0,
+    y1_i = y1,
+    yp_i = yp
+  ),
+  iter = 300, chains = 4,
+  pars = c("b0_j", "b1_j", "bp_j", "phi")
+)
+m
+
+# sm <- stan_model("zoib1.stan")
+# m <- optimizing(sm,
+#   data = list(
+#     N0 = N0, 
+#     N1 = N1, 
+#     Np = Np,
+#     J = 2L,
+#     X0_ij = cbind(rep(1, N0), x0),
+#     X1_ij = cbind(rep(1, N1), x1),
+#     Xp_ij = cbind(rep(1, Np), xp),
+#     y0_i = y0,
+#     y1_i = y1,
+#     yp_i = yp
+#   )
+# )
+```
+
+
+
+
+
+
+
+```{r, eval=FALSE}
+N <- 20
+x <- arm::rescale(rnorm(N))
+b_disc <- c(-4, 0, 4)
+b_1vs0 <- c(0, 0.5)
+b_prop <- c(0, 1.5)
+
+prob_disc <- plogis(cbind(rep(1, N), x, x^2) %*% b_disc)
+plot(x, prob_disc, ylim = c(0, 1))
+
+prob_1vs0 <- plogis(cbind(rep(1, N), x) %*% b_1vs0)
+plot(x, prob_1vs0, ylim = c(0, 1))
+
+prop_mu <- plogis(cbind(rep(1, N), x) %*% b_prop)
+plot(x, prop_mu, ylim = c(0, 1))
+
+phi <- 10
+p <- prop_mu * phi
+q <- phi - prop_mu * phi
+
+y_disc <- rbinom(N, size = 1, prob = prob_disc)
+y_1vs0 <- rbinom(N, size = 1, prob = prob_1vs0)
+y_prop <- rbeta(N, shape1 = p, shape2 = q)
+
+y_1vs0[y_disc == 0] <- NA
+y_prop[y_disc == 1] <- NA
+
+plot(x, y_01, ylim = c(0, 1))
+plot(x, y_1vs0, ylim = c(0, 1))
+plot(x, y_prop, ylim = c(0, 1))
+
+plot(x, y_prop, ylim = c(0, 1))
+points(x, y_1vs0)
+y_true <- rowMeans(cbind(prob_1vs0 * prob_disc, prop_mu * (1 - prob_disc)))
+o <- order(x)
+lines(x[o], y_true[o])
+
+plot(x, y_true)
+```
