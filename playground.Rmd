@@ -134,7 +134,8 @@ Real data:
 d <- read_csv("ALL_SHOBS_2010_2014_PLOTS_MASTER_w_CO_FINAL_20171029.csv")
 d <- select(d, BOLESCORCH, RdNBR, FIRE) %>%
   na.omit() %>% as.data.frame() %>% as_tibble() %>% 
-  rename(y = BOLESCORCH, x = RdNBR, group = FIRE) %>% 
+  rename(y = BOLESCORCH, x = RdNBR, group = FIRE) %>%
+  filter(x < 2500) %>% 
   mutate(y0 = ifelse(y == 0, 1, 0),
     y1 = ifelse(y == 1, 1, 0),
     yp = ifelse(y == 0 | y == 1, NA, y),
@@ -248,7 +249,7 @@ stan_dat <- list(
 
 m <- stan("zoib1re.stan",
   data = stan_dat,
-  iter = 2000L, chains = 4L,
+  iter = 1000L, chains = 4L,
   pars = c("b0_j", "b1_j", "bp_j", "phi", "sigma_z", "z0_g", "z1_g", "zp_g"),
   control = list(adapt_delta = 0.95)
 )
@@ -265,8 +266,11 @@ e <- rstan::extract(m)
 mm_pred <- as.matrix(model.matrix(fp, data = d_pred))
 
 pred_p <- plogis(mm_pred %*% t(e$bp_j))
+plot(d_pred$xscaled, apply(pred_p, 1, median), ylim = c(0, 1))
 pred_0 <- plogis(mm_pred %*% t(e$b0_j))
+plot(d_pred$xscaled, apply(pred_0, 1, median), ylim = c(0, 1))
 pred_1 <- plogis(mm_pred %*% t(e$b1_j))
+plot(d_pred$xscaled, apply(pred_1, 1, median), ylim = c(0, 1))
 
 pred_p_re <- mm_pred %*% t(e$bp_j)
 pred_p_re <- apply(pred_p_re, 1, median)
@@ -336,7 +340,7 @@ fastAUC <- function(probs, class) {
 }
 
 probs <- apply(y_pred, 1, median)
-thresh <- seq(0.05, 0.95, length.out = 15)
+thresh <- seq(0.05, 0.95, length.out = 20)
 
 auc_thresh <- function(thresh = 0.5) {
   d$outcome <- ifelse(d$y > thresh, 1, 0)
@@ -350,12 +354,14 @@ roc_thresh <- function(thresh = 0.5) {
   fastROC(class = d$outcome, probs = probs)
 }
 
-lab <- paste0("AUC = ", round(min(a), 2), " - ", round(max(a), 2))
+lab <- paste0("AUC range = ", round(min(a), 2), " - ", round(max(a), 2))
+lab1 <- paste0("mean AUC = ", round(mean(a), 2))
 r <- plyr::ldply(thresh, roc_thresh)
 r$thresh <- rep(thresh, each = length(probs))
 ggplot(r, aes(fpr, tpr)) +
   geom_line(aes(group = as.factor(thresh), colour = thresh), alpha = 0.9) +
   scale_color_gradient2(mid = "grey75", midpoint = 0.5) +
-geom_text(data = data.frame(fpr = 0.75, tpr = 0.1), label = lab)
+  geom_text(data = data.frame(fpr = 0.75, tpr = 0.1), label = lab) +
+  geom_text(data = data.frame(fpr = 0.75, tpr = 0.15), label = lab1)
 ```
 
