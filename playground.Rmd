@@ -12,7 +12,6 @@ library(tidyverse)
 theme_set(theme_light())
 ```
 
-
 ```{r}
 set.seed(1)
 N <- 400
@@ -140,7 +139,8 @@ d <- select(d, Firemort.BA.p, RdNBR, FIRE) %>%
     y1 = ifelse(y == 1, 1, 0),
     yp = ifelse(y == 0 | y == 1, NA, y),
     xscaled = arm::rescale(x),
-    group = as.factor(group))
+    group = as.factor(group),
+    group_id = as.integer(group))
 
 dp <- filter(d, !is.na(yp))
 
@@ -149,7 +149,6 @@ N1 <- nrow(d)
 Np <- nrow(dp)
 
 f <- y ~ xscaled + group - 1
-
 mm0 <- as.matrix(model.matrix(f, data = d))
 mm1 <- as.matrix(model.matrix(f, data = d))
 mmp <- as.matrix(model.matrix(f, data = dp))
@@ -172,7 +171,7 @@ m <- optimizing(sm, data = stan_dat)
 
 m <- stan("zoib1.stan",
   data = stan_dat,
-  iter = 300L, chains = 4L,
+  iter = 500L, chains = 4L,
   pars = c("b0_j", "b1_j", "bp_j", "phi")
 )
 m
@@ -215,3 +214,76 @@ ggplot(pred_df, aes(xscaled, est, ymin = lwr, ymax = upr, group = group)) +
   ylim(0, 1)
 ```
 
+RE
+
+```{r}
+f <- y ~ xscaled
+mm0 <- as.matrix(model.matrix(f, data = d))
+mm1 <- as.matrix(model.matrix(f, data = d))
+mmp <- as.matrix(model.matrix(f, data = dp))
+
+stan_dat <- list(
+  N0 = N0, 
+  N1 = N1, 
+  Np = Np,
+  J01 = ncol(mm0),
+  Jp = ncol(mmp),
+  X0_ij = mm0,
+  X1_ij = mm1,
+  Xp_ij = mmp,
+  y0_i = d$y0,
+  y1_i = d$y1,
+  yp_i = dp$y,
+  
+  Ng = length(unique(d$group)),
+  group_id0 = d$group_id,
+  group_id1 = d$group_id,
+  group_idp = dp$group_id
+)
+sm <- stan_model("zoib1re.stan")
+m <- optimizing(sm, data = stan_dat)
+
+m <- stan("zoib1re.stan",
+  data = stan_dat,
+  iter = 500L, chains = 4L,
+  pars = c("b0_j", "b1_j", "bp_j", "phi", "sigma_z", "z0_g", "z1_g", "zp_g")
+)
+m
+```
+
+```{r}
+Npred <- 300L
+d_pred <- expand.grid(
+  xscaled = seq(min(d$xscaled), max(d$xscaled), length.out = Npred),
+  group_id = unique(d$group_id), y = 1)
+e <- rstan::extract(m)
+
+mm_pred <- as.matrix(model.matrix(f, data = d_pred))
+
+pred_p <- plogis(mm_pred %*% t(e$bp_j))
+plot(d_pred$xscaled, apply(pred_p, 1, median), ylim = c(0, 1), type = "p")
+points(xp, yp)
+
+pred_0 <- plogis(mm_pred %*% t(e$b0_j))
+plot(d_pred$xscaled, apply(pred_0, 1, median), ylim = c(0, 1), type = "p")
+
+pred_1 <- plogis(mm_pred %*% t(e$b1_j))
+plot(d_pred$xscaled, apply(pred_1, 1, median), ylim = c(0, 1), type = "p")
+
+y_pred <- (1 - pred_0) * (pred_1 + (1 - pred_1) * pred_p)
+
+pred_df <- data.frame(
+  xscaled = d_pred$xscaled,
+  group = d_pred$group,
+  est = apply(y_pred, 1, quantile, probs = 0.5),
+  lwr = apply(y_pred, 1, quantile, probs = 0.025),
+  upr = apply(y_pred, 1, quantile, probs = 0.975)
+)
+
+ggplot(pred_df, aes(xscaled, est, ymin = lwr, ymax = upr)) +
+  geom_point(data = d, aes(xscaled, y, colour = group), 
+    inherit.aes = FALSE, alpha = 0.6) +
+  geom_ribbon(alpha = 0.5, fill = "grey50") +
+  geom_line(lwd = 1) +
+  ylim(0, 1)
+```
