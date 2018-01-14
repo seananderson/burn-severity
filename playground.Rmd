@@ -9,13 +9,13 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 library(tidyverse)
-d <- read_csv("ALL_SHOBS_2010_2014_PLOTS_MASTER_w_CO_FINAL_20171029.csv")
+theme_set(theme_light())
 ```
 
 
 ```{r}
-set.seed(42)
-N <- 1000
+set.seed(1)
+N <- 400
 x <- arm::rescale(rnorm(N))
 b_0 <- c(-4, -3)
 b_1 <- c(-4, 3)
@@ -52,6 +52,8 @@ plot(x, y, ylim = c(0, 1))
 y_true <- (1 - prob_0) * (prob_1 + (1 - prob_1) * prop_mu)
 o <- order(x)
 lines(x[o], y_true[o])
+
+dat <- data.frame(x = x, y = y)
 ```
 
 
@@ -75,83 +77,141 @@ Np <- length(yp)
 library(rstan)
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
+
+stan_dat <- list(
+  N0 = N0, 
+  N1 = N1, 
+  Np = Np,
+  J01 = 2L,
+  Jp = 2L,
+  X0_ij = cbind(rep(1, N0), x0),
+  X1_ij = cbind(rep(1, N1), x1),
+  Xp_ij = cbind(rep(1, Np), xp),
+  y0_i = y0,
+  y1_i = y1,
+  yp_i = yp
+)
+sm <- stan_model("zoib1.stan")
+m <- optimizing(sm, data = stan_dat)
+
 m <- stan("zoib1.stan",
-  data = list(
-    N0 = N0, 
-    N1 = N1, 
-    Np = Np,
-    J = 2L,
-    X0_ij = cbind(rep(1, N0), x0),
-    X1_ij = cbind(rep(1, N1), x1),
-    Xp_ij = cbind(rep(1, Np), xp),
-    y0_i = y0,
-    y1_i = y1,
-    yp_i = yp
-  ),
-  iter = 300, chains = 4,
+  data = stan_dat,
+  iter = 300L, chains = 4L,
   pars = c("b0_j", "b1_j", "bp_j", "phi")
 )
 m
-
-# sm <- stan_model("zoib1.stan")
-# m <- optimizing(sm,
-#   data = list(
-#     N0 = N0, 
-#     N1 = N1, 
-#     Np = Np,
-#     J = 2L,
-#     X0_ij = cbind(rep(1, N0), x0),
-#     X1_ij = cbind(rep(1, N1), x1),
-#     Xp_ij = cbind(rep(1, Np), xp),
-#     y0_i = y0,
-#     y1_i = y1,
-#     yp_i = yp
-#   )
-# )
 ```
 
+```{r}
+Npred <- 200L
+x_pred <- seq(min(x), max(x), length.out = Npred)
+e <- rstan::extract(m)
 
+pred_p <- plogis(cbind(rep(1, Npred), x_pred) %*% t(e$bp_j))
+plot(x_pred, apply(pred_p, 1, median))
+pred_0 <- plogis(cbind(rep(1, Npred), x_pred) %*% t(e$b0_j))
+plot(x_pred, apply(pred_0, 1, median))
+pred_1 <- plogis(cbind(rep(1, Npred), x_pred) %*% t(e$b1_j))
+plot(x_pred, apply(pred_1, 1, median))
+y_pred <- (1 - pred_0) * (pred_1 + (1 - pred_1) * pred_p)
 
+pred_df <- data.frame(
+  x = x_pred,
+  est = apply(y_pred, 1, quantile, probs = 0.5),
+  lwr = apply(y_pred, 1, quantile, probs = 0.05),
+  upr = apply(y_pred, 1, quantile, probs = 0.95)
+)
 
-
-
-
-```{r, eval=FALSE}
-N <- 20
-x <- arm::rescale(rnorm(N))
-b_disc <- c(-4, 0, 4)
-b_1vs0 <- c(0, 0.5)
-b_prop <- c(0, 1.5)
-
-prob_disc <- plogis(cbind(rep(1, N), x, x^2) %*% b_disc)
-plot(x, prob_disc, ylim = c(0, 1))
-
-prob_1vs0 <- plogis(cbind(rep(1, N), x) %*% b_1vs0)
-plot(x, prob_1vs0, ylim = c(0, 1))
-
-prop_mu <- plogis(cbind(rep(1, N), x) %*% b_prop)
-plot(x, prop_mu, ylim = c(0, 1))
-
-phi <- 10
-p <- prop_mu * phi
-q <- phi - prop_mu * phi
-
-y_disc <- rbinom(N, size = 1, prob = prob_disc)
-y_1vs0 <- rbinom(N, size = 1, prob = prob_1vs0)
-y_prop <- rbeta(N, shape1 = p, shape2 = q)
-
-y_1vs0[y_disc == 0] <- NA
-y_prop[y_disc == 1] <- NA
-
-plot(x, y_01, ylim = c(0, 1))
-plot(x, y_1vs0, ylim = c(0, 1))
-plot(x, y_prop, ylim = c(0, 1))
-
-plot(x, y_prop, ylim = c(0, 1))
-points(x, y_1vs0)
-y_true <- rowMeans(cbind(prob_1vs0 * prob_disc, prop_mu * (1 - prob_disc)))
-o <- order(x)
-lines(x[o], y_true[o])
-
-plot(x, y_true)
+ggplot(pred_df, aes(x, est, ymin = lwr, ymax = upr)) +
+  geom_point(data = dat, aes(x, y), inherit.aes = FALSE, alpha = 0.6) +
+  geom_ribbon(alpha = 0.5) +
+  geom_line(colour = "red", lwd = 1) +
+  ylim(0, 1)
 ```
+
+Real data:
+
+```{r}
+d <- read_csv("ALL_SHOBS_2010_2014_PLOTS_MASTER_w_CO_FINAL_20171029.csv")
+d <- select(d, Firemort.BA.p, RdNBR, FIRE) %>% 
+  na.omit() %>% as.data.frame() %>% as_tibble() %>% 
+  rename(y = Firemort.BA.p, x = RdNBR, group = FIRE) %>% 
+  mutate(y0 = ifelse(y == 0, 1, 0),
+    y1 = ifelse(y == 1, 1, 0),
+    yp = ifelse(y == 0 | y == 1, NA, y),
+    xscaled = arm::rescale(x),
+    group = as.factor(group))
+
+dp <- filter(d, !is.na(yp))
+
+N0 <- nrow(d)
+N1 <- nrow(d)
+Np <- nrow(dp)
+
+f <- y ~ xscaled + group - 1
+
+mm0 <- as.matrix(model.matrix(f, data = d))
+mm1 <- as.matrix(model.matrix(f, data = d))
+mmp <- as.matrix(model.matrix(f, data = dp))
+
+stan_dat <- list(
+  N0 = N0, 
+  N1 = N1, 
+  Np = Np,
+  J01 = ncol(mm0),
+  Jp = ncol(mmp),
+  X0_ij = mm0,
+  X1_ij = mm1,
+  Xp_ij = mmp,
+  y0_i = d$y0,
+  y1_i = d$y1,
+  yp_i = dp$y
+)
+sm <- stan_model("zoib1.stan")
+m <- optimizing(sm, data = stan_dat)
+
+m <- stan("zoib1.stan",
+  data = stan_dat,
+  iter = 300L, chains = 4L,
+  pars = c("b0_j", "b1_j", "bp_j", "phi")
+)
+m
+```
+
+```{r}
+Npred <- 300L
+d_pred <- expand.grid(
+  xscaled = seq(min(d$xscaled), max(d$xscaled), length.out = Npred),
+  group = unique(d$group), y = 1)
+e <- rstan::extract(m)
+
+mm_pred <- as.matrix(model.matrix(f, data = d_pred))
+
+pred_p <- plogis(mm_pred %*% t(e$bp_j))
+plot(d_pred$xscaled, apply(pred_p, 1, median), ylim = c(0, 1), type = "p")
+points(xp, yp)
+
+pred_0 <- plogis(mm_pred %*% t(e$b0_j))
+plot(d_pred$xscaled, apply(pred_0, 1, median), ylim = c(0, 1), type = "p")
+
+pred_1 <- plogis(mm_pred %*% t(e$b1_j))
+plot(d_pred$xscaled, apply(pred_1, 1, median), ylim = c(0, 1), type = "p")
+
+y_pred <- (1 - pred_0) * (pred_1 + (1 - pred_1) * pred_p)
+
+pred_df <- data.frame(
+  xscaled = d_pred$xscaled,
+  group = d_pred$group,
+  est = apply(y_pred, 1, quantile, probs = 0.5),
+  lwr = apply(y_pred, 1, quantile, probs = 0.1),
+  upr = apply(y_pred, 1, quantile, probs = 0.9)
+)
+
+ggplot(pred_df, aes(xscaled, est, ymin = lwr, ymax = upr, group = group)) +
+  geom_point(data = d, aes(xscaled, y, colour = group), 
+    inherit.aes = FALSE, alpha = 0.6) +
+  geom_ribbon(alpha = 0.1, fill = "grey50") +
+  geom_line(aes(colour = group), lwd = 1) +
+  ylim(0, 1)
+```
+

@@ -2,18 +2,19 @@ data {
   int<lower=0> N0; // rows of data
   int<lower=0> N1; // rows of data
   int<lower=0> Np; // rows of data
-  int<lower=1> J; // # fixed covariates
-  matrix[N0,J] X0_ij; // fixed covariate matrix for mean
-  matrix[N1,J] X1_ij; // fixed covariate matrix for mean
-  matrix[Np,J] Xp_ij; // fixed covariate matrix for mean
+  int<lower=1> J01; // # fixed covariates disc.
+  int<lower=1> Jp; // # fixed covariates cont.
+  matrix[N0,J01] X0_ij; // fixed covariate matrix for mean
+  matrix[N1,J01] X1_ij; // fixed covariate matrix for mean
+  matrix[Np,Jp] Xp_ij; // fixed covariate matrix for mean
   int<lower=0,upper=1> y0_i[N0]; // vector to hold 0 vs other observations
   int<lower=0,upper=1> y1_i[N1]; // vector to hold 1 vs other observations
   vector[Np] yp_i; // vector to hold (0, 1) observations
 }
 parameters {
-  vector[J] b0_j;
-  vector[J] b1_j;
-  vector[J] bp_j;
+  vector[J01] b0_j;
+  vector[J01] b1_j;
+  vector[Jp] bp_j;
   real<lower=0> phi; // dispersion parameter
 }
 transformed parameters {
@@ -43,3 +44,10 @@ model {
   y1_i ~ bernoulli_logit(mu1);
   yp_i ~ beta(A, B);
 }
+// generated quantities {
+//   vector[N0] pred;
+//   for (i in 1:N0) {
+//     pred[i] = (1 - inv_logit(mu0[i])) *
+//       (inv_logit(mu1[i]) + (1 - inv_logit(mu1[i])) * inv_logit(mup[i]));
+//   }
+// }
