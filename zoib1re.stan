@@ -22,9 +22,9 @@ parameters {
   vector[Jp] bp_j;
   real<lower=0> phi; // dispersion parameter
 
-  vector[Ng] z0_g; // group-level deviates
-  vector[Ng] z1_g; // group-level deviates
-  vector[Ng] zp_g; // group-level deviates
+  vector[Ng] z0_g_cent; // group-level deviates
+  vector[Ng] z1_g_cent; // group-level deviates
+  vector[Ng] zp_g_cent; // group-level deviates
   real<lower=0> sigma_z[3]; // RE sigma
 }
 transformed parameters {
@@ -36,9 +36,17 @@ transformed parameters {
   vector<lower=0>[Np] A; // beta dist. parameter
   vector<lower=0>[Np] B; // beta dist. parameter
 
+  vector[Ng] z0_g; // group-level deviates
+  vector[Ng] z1_g; // group-level deviates
+  vector[Ng] zp_g; // group-level deviates
+
   mu0 = X0_ij * b0_j;
   mu1 = X1_ij * b1_j;
   mup = Xp_ij * bp_j;
+
+  z0_g = sigma_z[1] * z0_g_cent;
+  z1_g = sigma_z[2] * z1_g_cent;
+  zp_g = sigma_z[3] * zp_g_cent;
 
   for (i in 1:N0)
     mu0[i] = mu0[i] + z0_g[group_id0[i]];
@@ -52,19 +60,28 @@ transformed parameters {
   B = (1.0 - mu_temp) * phi;
 }
 model {
-  b0_j ~ normal(0, 5);
-  b1_j ~ normal(0, 5);
-  bp_j ~ normal(0, 5);
+
+  for (i in 2:J01) {
+    b0_j[i] ~ normal(0, 2);
+    b1_j[i] ~ normal(0, 2);
+  }
+  for (i in 2:Jp)
+    bp_j[i] ~ normal(0, 2);
+
+  b0_j[1] ~ normal(0, 5);
+  b1_j[1] ~ normal(0, 5);
+  bp_j[1] ~ normal(0, 5);
+
   phi ~ student_t(3, 0, 25);
 
-  z0_g ~ normal(0, 3);
-  z1_g ~ normal(0, 3);
-  zp_g ~ normal(0, 3);
-  sigma_z ~ student_t(3, 0, 3);
+  z0_g_cent ~ normal(0, 1);
+  z1_g_cent ~ normal(0, 1);
+  zp_g_cent ~ normal(0, 1);
+  sigma_z ~ student_t(3, 0, 2);
 
-  z0_g ~ normal(0, sigma_z[1]);
-  z1_g ~ normal(0, sigma_z[2]);
-  zp_g ~ normal(0, sigma_z[3]);
+  // z0_g ~ normal(0, sigma_z[1]);
+  // z1_g ~ normal(0, sigma_z[2]);
+  // zp_g ~ normal(0, sigma_z[3]);
 
   y0_i ~ bernoulli_logit(mu0);
   y1_i ~ bernoulli_logit(mu1);
