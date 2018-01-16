@@ -87,3 +87,21 @@ model {
   y1_i ~ bernoulli_logit(mu1);
   yp_i ~ beta(A, B);
 }
+generated quantities {
+  // log_lik is for use with the loo package
+  vector[N0] log_lik0;
+  vector[N1] log_lik1;
+  vector[Np] log_likp;
+  vector[N0+N1] log_lik_temp;
+  vector[Np+N0+N1] log_lik;
+
+  for (i in 1:N0)
+    log_lik0[i] = bernoulli_logit_lpmf(y0_i[i] | mu0[i]);
+  for (i in 1:N1)
+    log_lik1[i] = bernoulli_logit_lpmf(y1_i[i] | mu1[i]);
+  for (i in 1:Np)
+    log_likp[i] = beta_lpdf(yp_i[i] | A[i], B[i]);
+
+  log_lik_temp = append_row(log_lik0, log_lik1);
+  log_lik = append_row(log_lik_temp, log_likp);
+}
