@@ -13,8 +13,8 @@ theme_set(theme_light())
 ```
 
 ```{r}
-set.seed(1)
-N <- 400
+set.seed(42)
+N <- 2000
 x <- arm::rescale(rnorm(N))
 b_0 <- c(-4, -3)
 b_1 <- c(-4, 3)
@@ -45,7 +45,8 @@ y[y_0 == TRUE] <- 0
 y[y_1 == TRUE] <- 1
 
 plot(x, prop_mu, ylim = c(0, 1))
-points(x, prob_1 + (1 - prob_1) * prop_mu, ylim = c(0, 1), col = "blue")
+points(x, prob_1 + (1 - prob_1) * prop_mu, ylim = c(0, 1), col = "red")
+legend("topleft", col = c("red", "black"), pch = c(21, 21), legend = c("Pr(1) and proportion combined", "proportion only"))
 
 plot(x, y, ylim = c(0, 1))
 y_true <- (1 - prob_0) * (prob_1 + (1 - prob_1) * prop_mu)
@@ -63,11 +64,11 @@ plot(xp, yp)
 
 y0 <- ifelse(y == 0, 1, 0)
 x0 <- x
-plot(x0, y0)
+plot(x0, y0, ylim = c(0, 1))
 
 y1 <- ifelse(y == 1, 1, 0)
 x1 <- x
-plot(x1, y1)
+plot(x1, y1, ylim = c(0, 1))
 
 N0 <- length(y0)
 N1 <- length(y1)
@@ -91,9 +92,9 @@ stan_dat <- list(
   yp_i = yp
 )
 sm <- stan_model("zoib1.stan")
-m <- optimizing(sm, data = stan_dat)
+# m <- optimizing(sm, data = stan_dat)
 
-m <- stan("zoib1.stan",
+m <- sampling(sm,
   data = stan_dat,
   iter = 300L, chains = 4L,
   pars = c("b0_j", "b1_j", "bp_j", "phi")
@@ -107,11 +108,20 @@ x_pred <- seq(min(x), max(x), length.out = Npred)
 e <- rstan::extract(m)
 
 pred_p <- plogis(cbind(rep(1, Npred), x_pred) %*% t(e$bp_j))
-plot(x_pred, apply(pred_p, 1, median))
+plot(x_pred, apply(pred_p, 1, median), ylim = c(0, 1))
+points(xp, yp, col = "#00000030")
+lines(x[o], prop_mu[o], col = "blue", lwd = 2)
+
 pred_0 <- plogis(cbind(rep(1, Npred), x_pred) %*% t(e$b0_j))
-plot(x_pred, apply(pred_0, 1, median))
+plot(x_pred, apply(pred_0, 1, median), ylim = c(0, 1))
+points(x, y0, col = "#00000030")
+lines(x[o], prob_0[o], col = "blue", lwd = 2)
+
 pred_1 <- plogis(cbind(rep(1, Npred), x_pred) %*% t(e$b1_j))
-plot(x_pred, apply(pred_1, 1, median))
+plot(x_pred, apply(pred_1, 1, median), ylim = c(0, 1))
+points(x, y1, col = "#00000030")
+lines(x[o], prob_1[o], col = "blue", lwd = 2)
+
 y_pred <- (1 - pred_0) * (pred_1 + (1 - pred_1) * pred_p)
 
 pred_df <- data.frame(
@@ -122,10 +132,13 @@ pred_df <- data.frame(
 )
 
 ggplot(pred_df, aes(x, est, ymin = lwr, ymax = upr)) +
-  geom_point(data = dat, aes(x, y), inherit.aes = FALSE, alpha = 0.6) +
+  geom_point(data = dat, aes(x, y), inherit.aes = FALSE, alpha = 0.5) +
   geom_ribbon(alpha = 0.5) +
   geom_line(colour = "red", lwd = 1) +
-  ylim(0, 1)
+  ylim(0, 1) +
+  geom_line(data = data.frame(x = x[o], true = y_true[o]), aes(x = x, y = true), 
+    col = "blue",
+    inherit.aes = FALSE)
 ```
 
 Real data:
@@ -170,10 +183,10 @@ stan_dat <- list(
   y1_i = d$y1,
   yp_i = dp$y
 )
-sm <- stan_model("zoib1.stan")
-m <- optimizing(sm, data = stan_dat)
+# sm <- stan_model("zoib1.stan")
+# m <- optimizing(sm, data = stan_dat)
 
-m <- stan("zoib1.stan",
+m <- sampling(sm,
   data = stan_dat,
   iter = 1000L, chains = 4L,
   pars = c("b0_j", "b1_j", "bp_j", "phi")

@@ -8,213 +8,41 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 ```
 
-
 ```{r functions, cache=FALSE}
-get_dat <- function(response, main_predictor,
-  file = "ALL_SHOBS_2010_2014_PLOTS_MASTER_w_CO_FINAL_20171029.csv",
-  max_predictor = 2500) {
-  
-  response <- enquo(response)
-  main_predictor <- enquo(main_predictor)
-  
-  d <- read_csv(file)
-  d <- select(d, !!response, !!main_predictor, FIRE,
-    Easting, Northing, aspect, elev, slope, HeatLoad,
-    QMD_LAF, QMD_all, ba_ha) %>%
-    filter(!is.na(!!response), !is.na(!!main_predictor)) %>% 
-    rename(y = !!response, x = !!main_predictor, group = FIRE) %>%
-    filter(x <= max_predictor) %>% 
-    mutate(y0 = ifelse(y == 0, 1, 0),
-      y1 = ifelse(y == 1, 1, 0),
-      yp = ifelse(y == 0 | y == 1, NA, y),
-      xscaled = arm::rescale(x),
-      group = as.factor(tolower(group)),
-      group_id = as.integer(group)) %>% 
-    arrange(group_id, x)
-  names(d) <- tolower(names(d))
-  d
-}
-
-prep_stan_dat <- function(d, predictors = "xscaled") {
-  dp <- filter(d, !is.na(yp))
-  
-  N0 <- nrow(d)
-  N1 <- nrow(d)
-  Np <- nrow(dp)
-  
-  f0 <- as.formula(paste("y0 ~", paste(predictors, collapse = " + ")))
-  f1 <- as.formula(paste("y1 ~", paste(predictors, collapse = " + ")))
-  fp <- as.formula(paste("y ~", paste(predictors, collapse = " + ")))
-  mm0 <- as.matrix(model.matrix(f0, data = d))
-  mm1 <- as.matrix(model.matrix(f1, data = d))
-  mmp <- as.matrix(model.matrix(fp, data = dp))
-  
-  sd <- list(
-    N0 = N0, 
-    N1 = N1, 
-    Np = Np,
-    J01 = ncol(mm0),
-    Jp = ncol(mmp),
-    X0_ij = mm0,
-    X1_ij = mm1,
-    Xp_ij = mmp,
-    y0_i = d$y0,
-    y1_i = d$y1,
-    yp_i = dp$y,
-    
-    Ng = length(unique(d$group)),
-    group_id0 = d$group_id,
-    group_id1 = d$group_id,
-    group_idp = dp$group_id)
-  
-  list(stan_dat = sd, f = fp)
-}
-
-fit_model <- function(d, model, predictors = "xscaled", iter = 1000L, chains = 4L,
-  adapt_delta = 0.8) {
-  library(rstan)
-  
-  prep <- prep_stan_dat(d, predictors = predictors) 
-  m <- sampling(model,
-    data = prep$stan_dat,
-    iter = iter, chains = chains,
-    pars = c("b0_j", "b1_j", "bp_j", "phi", "sigma_z", "z0_g", "z1_g", "zp_g"),
-    control = list(adapt_delta = adapt_delta, max_treedepth = 20)
-  )
-  list(model = m, data = d, f = prep$f, stan_dat = prep$stan_dat)
-}
-
-make_predictions <- function(d, f, model, Npred = 200L) {
-  d_pred <- expand.grid(
-    xscaled = seq(min(d$xscaled), max(d$xscaled), length.out = Npred),
-    group_id = unique(d$group_id), y = 1)
-  e <- rstan::extract(model)
-  
-  mm_pred <- as.matrix(model.matrix(f, data = d_pred))
-  
-  pred_p <- plogis(mm_pred %*% t(e$bp_j))
-  # plot(d_pred$xscaled, apply(pred_p, 1, median), ylim = c(0, 1))
-  pred_0 <- plogis(mm_pred %*% t(e$b0_j))
-  # plot(d_pred$xscaled, apply(pred_0, 1, median), ylim = c(0, 1))
-  pred_1 <- plogis(mm_pred %*% t(e$b1_j))
-  # plot(d_pred$xscaled, apply(pred_1, 1, median), ylim = c(0, 1))
-  
-  pred_p_re <- mm_pred %*% t(e$bp_j)
-  pred_p_re <- apply(pred_p_re, 1, median)
-  zp_g <- apply(e$zp_g, 2, median)
-  
-  pred_0_re <- mm_pred %*% t(e$b0_j)
-  pred_0_re <- apply(pred_0_re, 1, median)
-  z0_g <- apply(e$z0_g, 2, median)
-  
-  pred_1_re <- mm_pred %*% t(e$b1_j)
-  pred_1_re <- apply(pred_1_re, 1, median)
-  z1_g <- apply(e$z1_g, 2, median)
-  
-  d_pred$pred_p_re <- plogis(pred_p_re + rep(zp_g, each = Npred))
-  d_pred$pred_0_re <- plogis(pred_0_re + rep(z0_g, each = Npred))
-  d_pred$pred_1_re <- plogis(pred_1_re + rep(z1_g, each = Npred))
-  
-  y_pred <- (1 - pred_0) * (pred_1 + (1 - pred_1) * pred_p)
-  d_pred$y_pred_re <- (1 - d_pred$pred_0_re) * 
-    (d_pred$pred_1_re + (1 - d_pred$pred_1_re) * d_pred$pred_p_re)
-  
-  pred_df <- data.frame(
-    xscaled = d_pred$xscaled,
-    group = d_pred$group_id,
-    est = apply(y_pred, 1, quantile, probs = 0.5),
-    lwr = apply(y_pred, 1, quantile, probs = 0.025),
-    upr = apply(y_pred, 1, quantile, probs = 0.975),
-    est_re = d_pred$y_pred_re,
-    x = d_pred$xscaled * 2 * sd(d$x) + mean(d$x)
-  )
-  pred_df
-}
-
-make_pred_plot <- function(pred_df, raw_data) {
-  ggplot(pred_df, aes(x, est, ymin = lwr, ymax = upr)) +
-    geom_point(data = d, aes(x, y, colour = group), 
-      inherit.aes = FALSE, alpha = 0.6) +
-    geom_line(aes(y = est_re, group = as.factor(group)), 
-      col = "grey50", lty = 1, lwd = 0.2) +
-    geom_line(lwd = 1.5) +
-    geom_ribbon(alpha = 0.5, fill = "grey20") +
-    ylim(0, 1) + 
-    ggsidekick::theme_sleek() +
-    ylab("Proportion burned") +
-    xlab("Predictor value") +
-    labs(colour = "Fire location")
-}
-
-make_roc <- function(d, f, model) {
-  
-  e <- rstan::extract(model)
-  mm <- as.matrix(model.matrix(f, data = d))
-  
-  pred_p <- plogis(mm %*% t(e$bp_j))
-  pred_0 <- plogis(mm %*% t(e$b0_j))
-  pred_1 <- plogis(mm %*% t(e$b1_j))
-  
-  y_pred <- (1 - pred_0) * (pred_1 + (1 - pred_1) * pred_p)
-  
-  # https://gist.github.com/traversc/1446ebe1dcc2d84bccdca781d4f1fa2a
-  fastROC <- function(probs, class) {
-    class_sorted <- class[order(probs, decreasing=T)]
-    TPR <- cumsum(class_sorted) / sum(class)
-    FPR <- cumsum(class_sorted == 0) / sum(class == 0)
-    return(data.frame(tpr=TPR, fpr=FPR))
-  }
-  fastAUC <- function(probs, class) {
-    x <- probs
-    y <- class
-    x1 = x[y==1]; n1 = length(x1); 
-    x2 = x[y==0]; n2 = length(x2);
-    r = rank(c(x1,x2))  
-    auc = (sum(r[1:n1]) - n1*(n1+1)/2) / n1 / n2
-    return(auc)
-  }
-  
-  probs <- apply(y_pred, 1, median)
-  thresh <- seq(0.05, 0.95, length.out = 20)
-  
-  auc_thresh <- function(thresh = 0.5) {
-    d$outcome <- ifelse(d$y > thresh, 1, 0)
-    fastAUC(class = d$outcome, probs = probs)
-  }
-  a <- sapply(thresh, auc_thresh)
-  
-  roc_thresh <- function(thresh = 0.5) {
-    d$outcome <- ifelse(d$y > thresh, 1, 0)
-    fastROC(class = d$outcome, probs = probs)
-  }
-  
-  lab <- paste0("AUC range = ", round(min(a), 2), " - ", round(max(a), 2))
-  lab1 <- paste0("mean AUC = ", round(mean(a), 2))
-  r <- plyr::ldply(thresh, roc_thresh)
-  r$thresh <- rep(thresh, each = length(probs))
-  ggplot(r, aes(fpr, tpr)) +
-    geom_line(aes(group = as.factor(thresh), colour = thresh), alpha = 0.9) +
-    scale_color_gradient2(mid = "grey75", midpoint = 0.5) +
-    geom_text(data = data.frame(fpr = 0.75, tpr = 0.1), label = lab) +
-    geom_text(data = data.frame(fpr = 0.75, tpr = 0.15), label = lab1) +
-    ggsidekick::theme_sleek()
-}
+source("zoib-functions.R")
 ```
 
 ```{r mainfit, cache=TRUE, dependson="functions",warning=FALSE,message=FALSE}
-# dd <- read_csv("ALL_SHOBS_2010_2014_PLOTS_MASTER_w_CO_FINAL_20171029.csv")
 library(rstan)
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 sm <- stan_model("zoib1re.stan")
 
-d <- get_dat(Firemort.BA.p, RdNBR)
+d <- get_dat(Firemort.BA.p, RdNBR, 
+  file = "ALL_SHOBS_2010_2014_PLOTS_MASTER_w_CO_FINAL_20171029.csv",
+  max_predictor = 2500)
 m <- fit_model(d, model = sm, predictors = "xscaled")
-print(m$model, probs = c(0.05, 0.5, 0.95))
+print(m$model, probs = c(0.05, 0.5, 0.95), pars = "log_lik", include = FALSE)
 p <- make_predictions(d = d, f = m$f, model = m$model)
 g <- make_pred_plot(p, d)
 print(g)
-make_roc(d, m$f, m$model)
+
+predictions <- make_predictions_dat(model = m$model, f = m$f, d = d)
+make_roc(d = d, predictions = predictions)
+
+library(loo)
+extract_log_lik(m$model) %>% loo()
+```
+
+```{r residuals1, warning=FALSE}
+mutate(d, pred = predictions, resid = pred - y) %>% 
+  select(-y, -group, -xscaled, -yp, -y1, -y0) %>% 
+  reshape2::melt(id.vars = "resid") %>%
+  ggplot(aes(value, resid)) + 
+  geom_point(alpha = 0.6) +
+  facet_wrap(~variable, scales = "free_x") +
+  ggsidekick::theme_sleek() +
+  geom_hline(yintercept = 0, lty = 2, col = "blue")
 ```
 
 # Interactions
@@ -223,6 +51,7 @@ make_roc(d, m$f, m$model)
 sm <- stan_model("zoib1re.stan")
 d <- mutate(d, ba_ha = arm::rescale(ba_ha),
   northing = arm::rescale(northing),
+  easting = arm::rescale(easting),
   elev = arm::rescale(elev),
   heatload = arm::rescale(heatload),
   slope = arm::rescale(slope),
@@ -230,10 +59,28 @@ d <- mutate(d, ba_ha = arm::rescale(ba_ha),
 )
 m <- fit_model(d, model = sm,
   predictors = c("xscaled", "northing*xscaled", "elev*xscaled", 
-    "slope*xscaled", "heatload*xscaled", "aspect*xscaled"))
+    "easting*xscaled", "slope*xscaled", "heatload*xscaled", 
+    "aspect*xscaled"))
+extract_log_lik(m$model) %>% loo()
 ```
 
-```{r plot-interactions, cache=TRUE, dependson=c("interactions", "functions")}
+```{r}
+predictions <- make_predictions_dat(model = m$model, f = m$f, d = d)
+make_roc(d = d, predictions = predictions)
+```
+
+```{r residuals2, warning=FALSE}
+mutate(d, pred = predictions, resid = pred - y) %>% 
+  select(-y, -group, -xscaled, -yp, -y1, -y0) %>% 
+  reshape2::melt(id.vars = "resid") %>%
+  ggplot(aes(value, resid)) + 
+  geom_point(alpha = 0.6) +
+  facet_wrap(~variable, scales = "free_x") +
+  ggsidekick::theme_sleek() +
+  geom_hline(yintercept = 0, lty = 2, col = "blue")
+```
+
+```{r plot-interactions, cache=TRUE, dependson=c("interactions", "functions"), fig.height=6.5}
 terms <- tibble(
   name = colnames(m$stan_dat$Xp_ij),
   num = as.character(seq_along(colnames(m$stan_dat$Xp_ij)))
@@ -246,10 +93,11 @@ b <- broom::tidyMCMC(m$model, estimate.method = "median", conf.int = TRUE,
   conf.method = "HPDinterval") %>% 
   filter(grepl("b[01p]+_j", term)) %>% 
   filter(!grepl("\\[1\\]", term)) %>% 
-  filter(!grepl("\\[2\\]", term)) %>% 
+  # filter(!grepl("\\[2\\]", term)) %>% 
   mutate(num = gsub("b[01p]+_j\\[([0-9]+)\\]", "\\1", term)) %>% 
   mutate(model = gsub("b([01p]+)_j\\[([0-9]+)\\]", "\\1", term)) %>% 
-  left_join(terms, by = "num")
+  left_join(terms, by = "num") %>% 
+  mutate(name = gsub("xscaled", " RdNBR", name))
 
 b %>% 
   mutate(estimate = ifelse(model == 0, -estimate, estimate)) %>% 
@@ -257,14 +105,29 @@ b %>%
   mutate(conf.high = ifelse(model == 0, -conf.high, conf.high)) %>% 
   mutate(interaction = grepl(":", name)) %>% 
   inner_join(models, by = "model") %>% 
-  ggplot(aes(y = estimate, x = name, colour = model_full, shape = interaction)) +
+  ggplot(aes(y = estimate, x = (fct_relevel(name, " RdNBR", after = Inf)), 
+    colour = model_full, shape = interaction)) +
   geom_hline(yintercept = 0, lty = 2, col = "grey55") +
   geom_pointrange(aes(ymin = conf.low, ymax = conf.high),
     position = position_dodge(width = 0.4)) +
   xlab("") + 
   ggsidekick::theme_sleek() +
   coord_flip() +
-  scale_colour_brewer(palette = "Set2") +
+  scale_colour_brewer(palette = "Dark2") +
   scale_shape_manual(values = c(19, 21)) +
-  labs(colour = "Model", shape = "Interaction", y = "Coefficient")
+  labs(colour = "Model", shape = "Interaction", y = "Coefficient value")
 ```
+
+# All
+
+```{r}
+
+d <- get_dat(Firemort.BA.p, RdNBR, 
+  file = "ALL_SHOBS_2010_2014_PLOTS_MASTER_w_CO_FINAL_20171029.csv",
+  max_predictor = 2500)
+m <- fit_model(d, model = sm, predictors = "xscaled")
+print(m$model, probs = c(0.05, 0.5, 0.95), pars = "log_lik", include = FALSE)
+p <- make_predictions(d = d, f = m$f, model = m$model)
+g <- make_pred_plot(p, d)
+```
+
