@@ -38,7 +38,7 @@ g <- make_pred_plot(p, d)
 print(g)
 ```
 
-Each thin line is the production for individual fire (incorporates the random intercepts). The thick line is the median main effect prediction in the shaded region shows the 95% credible interval.
+Each thin line is the prediction for an individual fire (incorporates the random intercepts). The thick line is the median global prediction and the shaded region shows the 95% credible interval.
 
 Let's make an ROC plot for range of possible thresholds from 0.2 to 0.8 on the response. The y-axis represents true positive rate and the x-axis represents false positive rate. 
 
@@ -69,7 +69,7 @@ mutate(d, pred = predictions, resid = pred - y) %>%
 
 # Interactions
 
-Now let's try a model that includes other covariates and their interaction with RdNBR. 
+Now let's try a model that includes other covariates and their interaction with RdNBR. At this point I've left out a couple of the predictors you used that have NAs for some rows of data. I think there may be an issue where all the locations with zero burned have NAs for a predictor.
 
 ```{r interactions, cache=TRUE, dependson="functions", warning=FALSE,message=FALSE}
 sm <- stan_model("zoib1re.stan")
@@ -166,11 +166,11 @@ b %>%
   labs(colour = "Model", shape = "Interaction", y = "Coefficient value")
 ```
 
-I haven't done it here yet, but another way to represent these effects would be to show their effect on the predictions holding the other variables after their mean values. It would look like the first plot in this document. Otherwise, the coefficients themselves have to be kept separate. 
+I haven't done it here yet, but another way to represent these effects would be to show their effect on the predictions holding the other variables at their mean values. It would look like the first plot in this document with one of these predictors on the x-axis and likely multiple panels. Otherwise, the coefficients themselves have to be kept separate. 
 
 # Cross-validation
 
-One way to cross validate the model fits, perhaps the most realistic way, is to build them leaving out a fire and then try to predict the basal area killed by a fire for that left out fire. We can also gather all those predictions and create a out-of-sample ROC plot.
+One way to cross validate the model fits — perhaps the most realistic way — is to build them leaving out a fire and then try to predict the basal area killed by a fire for that left out fire. We can also gather all those predictions and create a out-of-sample ROC plot.
 
 In the following plot, the predictions come from a model excluding that fire. 
 
@@ -238,6 +238,8 @@ g + geom_line(aes(y = nls_fit), col = "red", lwd = 2, lty = 2)
 d$stan_fit <- make_predictions_dat(m$m, d, m$f)  
 ```
 
+In the above plot, the thick red line is the projection from NLS.
+
 So, we get a similar fit with NLS but we end up over-predicting our response when it gets close to 0.
 
 I was trying to come up with some other way to compare the models. One way would be with a binned comparison where you split the data in bins from left to right and calculate the mean of the response in each bin along with the mean of the predictions. We can see that the NLS model misses the boat for low values of the response probably because it's getting driven more by the squared residuals towards the middle of the response. 
@@ -304,7 +306,7 @@ ggplot(preds, aes(x, est, ymin = lwr, ymax = upr)) +
     col = "grey50", lty = 1, lwd = 0.2)
 ```
 
-We can calculate the ROC/AUC for all the response variables. Interestingly the AUC/ROC is identical or almost identical between NLS and ZOIB. I think this is because of the nature of ROC whether response has to get cut into above or below a threshold for comparison and so as long as the slope is about the same and the shape is the same (logit) you get the same ROC/AUC. So the advantage of the ZOIB model isn't in ROC/AUC.
+We can calculate the ROC/AUC for all the response variables. Interestingly the AUC/ROC is identical or almost identical between NLS and ZOIB. I think this is because of the nature of ROC where the response has to get cut into above or below a threshold for comparison and so as long as the slope is about the same and the shape is the same (logit) you get the same ROC/AUC. So the advantage of the ZOIB model isn't in ROC/AUC.
 
 ```{r rocs-all, fig.height=9, fig.width=9}
 rocs <- map(out, function(x) {
@@ -331,6 +333,7 @@ do.call("grid.arrange", c(rocs, ncol=nCol))
 
 
 The advantages in my eyes are:
+
 - properly representing the data-generating process
 - better fit to the data for the zeros
 - accurately estimating coefficients with probability intervals (i.e. the interaction model)
@@ -340,6 +343,9 @@ The advantages in my eyes are:
 - methodologically it's quite novel --- I haven't seen this applied anywhere in ecology before
 
 The disadvantages are:
+
 - it's more complicated (for similar ROC curves)
 - you don't get one simple equation that people can use to predict from (but we could make a really simple R package that people could plug their own data into to predict with)... there is also one equation for just the mean prediction, but it includes 3 logistic curves so it's not nearly as simple to write out
 - methodologically it's novel rather than doing what people in the field are used to
+
+The model could be made more complicated by adding things like random slopes or group-level predictors on the random intercept, e.g. mean easting of the fire... but such a model would be less useful for making predictions in totally new places.
