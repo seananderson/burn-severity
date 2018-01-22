@@ -3,21 +3,27 @@ title: "Model fits"
 output: html_document
 ---
 
-```{r setup, include=FALSE, cache=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-library(tidyverse)
+```{r setup, echo = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "figs-knitr/",
+  cache.path = "cache/",
+  cache = TRUE,
+  autodep = TRUE
+)
 ```
 
-```{r functions, cache=FALSE}
+```{r functions, cache=FALSE, warning=FALSE,message=FALSE,results='hide'}
 source("zoib-functions.R")
-```
-
-```{r mainfit, cache=TRUE, dependson="functions",warning=FALSE,message=FALSE}
+library(tidyverse)
 library(rstan)
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 sm <- stan_model("zoib1re.stan")
+```
 
+```{r mainfit, cache=TRUE, dependson="functions",warning=FALSE,message=FALSE}
 d <- get_dat(Firemort.BA.p, RdNBR, 
   file = "ALL_SHOBS_2010_2014_PLOTS_MASTER_w_CO_FINAL_20171029.csv",
   max_predictor = 2500)
@@ -66,7 +72,8 @@ extract_log_lik(m$model) %>% loo()
 
 ```{r}
 predictions <- make_predictions_dat(model = m$model, f = m$f, d = d)
-make_roc(d = d, predictions = predictions)
+roc_all <- make_roc(d = d, predictions = predictions)
+roc_all
 ```
 
 ```{r residuals2, warning=FALSE}
@@ -87,47 +94,197 @@ terms <- tibble(
 )
 
 models <- tibble(model = c("0", "1", "p"), 
-  model_full = c("Pr(not 0)", "Pr(1)", "Proportion"))
+  model_full = factor(
+    c("Pr(not 0)", "Pr(1)", "Proportion"),
+    levels = 
+      c("Pr(not 0)", "Proportion", "Pr(1)")
+  ))
 
-b <- broom::tidyMCMC(m$model, estimate.method = "median", conf.int = TRUE,
-  conf.method = "HPDinterval") %>% 
+b <- broom::tidyMCMC(m$model, estimate.method = "median", conf.int = TRUE)
+b_inner <- broom::tidyMCMC(m$model, estimate.method = "median", conf.int = TRUE,
+  conf.level = 0.5) %>% 
+  rename(conf.low.25 = conf.low, conf.high.75 = conf.high) %>% 
+  select(-estimate, -std.error)
+
+b <- b %>% inner_join(b_inner, by = "term") %>% 
   filter(grepl("b[01p]+_j", term)) %>% 
   filter(!grepl("\\[1\\]", term)) %>% 
-  # filter(!grepl("\\[2\\]", term)) %>% 
   mutate(num = gsub("b[01p]+_j\\[([0-9]+)\\]", "\\1", term)) %>% 
   mutate(model = gsub("b([01p]+)_j\\[([0-9]+)\\]", "\\1", term)) %>% 
   left_join(terms, by = "num") %>% 
   mutate(name = gsub("xscaled", " RdNBR", name))
 
+pal <- RColorBrewer::brewer.pal(4, "Set2")
+pal <- c(pal[1], "grey50", pal[2])
 b %>% 
   mutate(estimate = ifelse(model == 0, -estimate, estimate)) %>% 
-  mutate(conf.low = ifelse(model == 0, -conf.low, conf.low)) %>% 
+  mutate(conf.low = ifelse(model == 0, -conf.low, conf.low)) %>%
   mutate(conf.high = ifelse(model == 0, -conf.high, conf.high)) %>% 
+  mutate(conf.high.75 = ifelse(model == 0, -conf.high.75, conf.high.75)) %>% 
+  mutate(conf.low.25 = ifelse(model == 0, -conf.low.25, conf.low.25)) %>% 
   mutate(interaction = grepl(":", name)) %>% 
   inner_join(models, by = "model") %>% 
-  ggplot(aes(y = estimate, x = (fct_relevel(name, " RdNBR", after = Inf)), 
+  mutate(xvar = fct_relevel(name, " RdNBR", after = Inf)) %>% 
+  ggplot(aes(y = estimate, x = xvar, 
     colour = model_full, shape = interaction)) +
   geom_hline(yintercept = 0, lty = 2, col = "grey55") +
+  geom_linerange(aes(ymin = conf.low.25, ymax = conf.high.75),
+    position = position_dodge(width = 0.4), size = 1.2) +
   geom_pointrange(aes(ymin = conf.low, ymax = conf.high),
     position = position_dodge(width = 0.4)) +
   xlab("") + 
   ggsidekick::theme_sleek() +
   coord_flip() +
-  scale_colour_brewer(palette = "Dark2") +
+  scale_color_manual(values = pal) +
   scale_shape_manual(values = c(19, 21)) +
   labs(colour = "Model", shape = "Interaction", y = "Coefficient value")
 ```
 
-# All
+# Cross-validation
 
-```{r}
-
-d <- get_dat(Firemort.BA.p, RdNBR, 
+```{r cv-model, cache=TRUE, dependson=c("functions"), warning=FALSE, message=FALSE, results='hide'}
+d <- get_dat(Firemort.BA.p, RdNBR,
   file = "ALL_SHOBS_2010_2014_PLOTS_MASTER_w_CO_FINAL_20171029.csv",
   max_predictor = 2500)
+fires <- unique(d$group)
+models <- map(fires, function(x) {
+  fit_model(d = d[d$group != x, , drop = FALSE], model = sm, 
+    predictors = "xscaled", iter = 1000, chains = 1)
+})
+preds <- map2(models, fires, function(x, y) {
+  make_predictions(d = d[d$group == y, , drop = FALSE], f = x$f, 
+    model = x$model, re = FALSE)
+})
+```
+
+Plot:
+
+```{r, cache=FALSE, dependson=c("cv-model", "functions"), fig.height=6.25, fig.width=8}
+preds_df <- bind_rows(preds) %>% rename(group_id = group) %>% 
+  mutate(x = xscaled * 2 * sd(d$x) + mean(d$x)) %>% 
+  inner_join(select(d, group, group_id) %>% unique(), by = "group_id")
+ggplot(preds_df, aes(x, est)) +
+  geom_ribbon(alpha = 0.5, fill = "grey20", aes(ymin = lwr, ymax = upr)) +
+  geom_point(data = d, aes(x, y), alpha = 0.6) +
+  geom_line(lwd = 1.2, col = "red") +
+  ylim(0, 1) +
+  ggsidekick::theme_sleek() +
+  ylab("Proportion burned") +
+  xlab("Predictor value") +
+  labs(colour = "Fire location") +
+  facet_wrap(~group)
+```
+
+```{r}
+roc_dat <- map2_df(models, fires, function(x, y) {
+  dd <- d[d$group == y, ]
+  dd$prediction <- make_predictions_dat(model = x$model, f = x$f, d = dd)
+  dd
+})
+make_roc(roc_dat, predictions = roc_dat$prediction)
+```
+
+# NLS comparison
+
+```{r nls, cache=TRUE}
+d <- get_dat(Firemort.BA.p, RdNBR,
+  file = "ALL_SHOBS_2010_2014_PLOTS_MASTER_w_CO_FINAL_20171029.csv",
+  max_predictor = 2500)
+iForm <- y~1/(1+exp(a*(b-x)))
+resNLS <- nls(iForm, data = d, start = list(a = 0.005, b = 375))
+d$nls_fit <- predict(resNLS, newdata = d)
+make_roc(d = d, predictions = d$nls_fit)
+roc_all
+
 m <- fit_model(d, model = sm, predictors = "xscaled")
-print(m$model, probs = c(0.05, 0.5, 0.95), pars = "log_lik", include = FALSE)
 p <- make_predictions(d = d, f = m$f, model = m$model)
+p$nls_fit <- predict(resNLS, newdata = p)
 g <- make_pred_plot(p, d)
+g + geom_line(aes(y = nls_fit), col = "red", lwd = 2, lty = 2)
+
+d$stan_fit <- make_predictions_dat(m$m, d, m$f)  
+```
+
+Binned comparison?
+
+```{r binned}
+cuts <- seq(min(d$x), max(d$x), length.out = 11)
+d$cut <- cuts[findInterval(d$x, cuts)]
+group_by(d, cut) %>% 
+  summarise(mean_y = mean(y), mean_stan = mean(stan_fit), mean_nls = mean(nls_fit)) %>%
+  reshape2::melt(id = "cut") %>% 
+  ggplot(aes(cut, value, colour = variable)) +
+  geom_line() +
+  ggsidekick::theme_sleek() +
+  scale_colour_manual(values = c("mean_y" = "grey40", "mean_stan" = "red", "mean_nls" = "blue")) +
+  geom_point(data = d, aes(x = x, y = y), inherit.aes = FALSE, alpha = 0.4) +
+  geom_vline(aes(xintercept = cut), alpha = 0.5)
+```
+
+# Fit all
+
+```{r fit-all-rdnbr, cache=TRUE}
+y_vars <- c(
+  "Firemort.BA.p",
+  "Firemort.trees.p",
+  "CHARHT_percMax",
+  "BOLESCORCH",
+  "CHARCOV")
+
+out <- map(y_vars, function(y) {
+  d <- get_dat(!!quo_name(y), RdNBR,
+    file = "ALL_SHOBS_2010_2014_PLOTS_MASTER_w_CO_FINAL_20171029.csv",
+    max_predictor = 2500)
+  f <- y~1/(1+exp(a*(b-x)))
+  resNLS <- nls(f, data = d, start = list(a = 0.005, b = 375))
+  d$nls_fit <- predict(resNLS, newdata = d)
+  m <- fit_model(d, model = sm, predictors = "xscaled", iter = 600, chains = 4)
+  p <- make_predictions(d = d, f = m$f, model = m$model)
+  p$nls_fit <- predict(resNLS, newdata = p)
+  p$response <- y
+  g <- make_pred_plot(p, d) + geom_line(aes(y = nls_fit), col = "red", lwd = 2, lty = 2)
+  list(g = g, p = p, m = m, d = d, nls_model = resNLS)
+})
+```
+
+```{r plot-all-rdnbr}
+preds <- map_df(out, function(x) x$p)
+
+ggplot(preds, aes(x, est, ymin = lwr, ymax = upr)) +
+  geom_point(data = d, aes(x, y),
+    inherit.aes = FALSE, alpha = 0.5) +
+  geom_line(lwd = 1.2) +
+  geom_ribbon(alpha = 0.5, fill = "grey20") +
+  ylim(0, 1) +
+  ggsidekick::theme_sleek() +
+  ylab("Proportion burned") +
+  xlab("Predictor value") +
+  facet_wrap(~response) +
+  geom_line(aes(y = nls_fit), col = "green", lty = 1, lwd = 1.1) +
+  geom_line(aes(y = est_re, group = as.factor(group)),
+    col = "grey50", lty = 1, lwd = 0.2)
+```
+
+ROCs:
+
+```{r rocs-all, fig.height=9, fig.width=9}
+rocs <- map(out, function(x) {
+  predictions <- make_predictions_dat(model = x$m$model, f = x$m$f, d = x$d)
+  make_roc(d = x$d, predictions = predictions) +
+    ggtitle(unique(x$p$response))
+})
+library(gridExtra)
+n <- length(rocs)
+nCol <- floor(sqrt(n))
+do.call("grid.arrange", c(rocs, ncol=nCol))
+
+rocs <- map(out, function(x) {
+  predictions <- predict(x$nls_model, newdata = x$d)
+  make_roc(d = x$d, predictions = predictions) +
+    ggtitle(unique(x$p$response))
+})
+n <- length(rocs)
+nCol <- floor(sqrt(n))
+do.call("grid.arrange", c(rocs, ncol=nCol))
 ```
 
