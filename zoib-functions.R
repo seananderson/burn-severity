@@ -7,8 +7,9 @@ get_dat <- function(response, main_predictor,
 
   d <- suppressMessages(read_csv(file))
   d <- select(d, !!response, !!main_predictor, FIRE,
-    Easting, Northing, aspect, elev, slope, HeatLoad,
-    QMD_LAF, QMD_all, ba_ha) %>%
+    lat, HeatLoad, slope, preNBR, # Q2
+    slope, HeatLoad, # Q3
+    QMD_LAF, QMD_all, ba_ha, stems_ha, RedGrayGreenStage.BA.p) %>%
     filter(!is.na(!!response), !is.na(!!main_predictor)) %>%
     rename(y = !!response, x = !!main_predictor, group = FIRE) %>%
     filter(x <= max_predictor) %>%
@@ -20,6 +21,7 @@ get_dat <- function(response, main_predictor,
       group_id = as.integer(group)) %>%
     arrange(group_id, x)
   names(d) <- tolower(names(d))
+  names(d) <- gsub("\\.", "_", names(d))
   d
 }
 
@@ -65,14 +67,16 @@ prep_stan_dat <- function(d, predictors = "xscaled") {
 }
 
 fit_model <- function(d, model, predictors = "xscaled", iter = 800L, chains = 4L,
-  adapt_delta = 0.8, ...) {
+  adapt_delta = 0.8, log_lik = TRUE, ...) {
   library(rstan)
 
+  pars <- c("b0_j", "b1_j", "bp_j", "phi", "sigma_z", "z0_g", "z1_g", "zp_g")
+  if (log_lik) pars <- c(pars, "log_lik")
   prep <- prep_stan_dat(d, predictors = predictors)
   m <- sampling(model,
     data = prep$stan_dat,
     iter = iter, chains = chains,
-    pars = c("b0_j", "b1_j", "bp_j", "phi", "sigma_z", "z0_g", "z1_g", "zp_g", "log_lik"),
+    pars = pars,
     control = list(adapt_delta = adapt_delta, max_treedepth = 20), ...
   )
   list(model = m, data = d, f = prep$f, stan_dat = prep$stan_dat)
@@ -198,7 +202,7 @@ make_predictions_dat <- function(model, d, f) {
   apply(y_pred, 1, median)
 }
 
-make_roc <- function(d, predictions) {
+make_roc <- function(d, predictions, return_plot = TRUE) {
   thresh <- seq(0.2, 0.8, length.out = 8)
   auc_thresh <- function(thresh = 0.5) {
     d$outcome <- ifelse(d$y > thresh, 1, 0)
@@ -215,10 +219,14 @@ make_roc <- function(d, predictions) {
   lab1 <- paste0("mean AUC = ", round(mean(a), 2))
   r <- plyr::ldply(thresh, roc_thresh)
   r$thresh <- rep(thresh, each = length(predictions))
-  ggplot(r, aes(fpr, tpr)) +
+  g <- ggplot(r, aes(fpr, tpr)) +
     geom_line(aes(group = as.factor(thresh), colour = thresh), alpha = 0.9) +
     scale_color_gradient2(mid = "grey75", midpoint = 0.5) +
     geom_text(data = data.frame(fpr = 0.75, tpr = 0.1), label = lab) +
     geom_text(data = data.frame(fpr = 0.75, tpr = 0.15), label = lab1) +
     ggsidekick::theme_sleek()
+  if (return_plot)
+    return(g)
+  else
+    return(a)
 }

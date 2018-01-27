@@ -1,0 +1,125 @@
+---
+title: "Title here"
+output: html_document
+---
+
+```{r setup, echo = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "figs-knitr/",
+  cache.path = "cache/",
+  cache = TRUE,
+  autodep = TRUE
+)
+```
+
+We'll start by loading some packages and reading in a number of functions that are included in `zoib-functions.R`:
+
+```{r functions, cache=FALSE, warning=FALSE, message=FALSE, results='hide'}
+source("zoib-functions.R")
+library("tidyverse")
+library("rstan")
+library("doParallel")
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+sm <- stan_model("zoib1re.stan")
+registerDoParallel(cores = parallel::detectCores())
+```
+
+Fit all satelite predictors to all field measure responses:
+
+```{r fit-all-q1, cache=TRUE}
+x_vars <- c(
+  "dNBR",
+  "dNBR_BL",
+  "dNBR_Offset",
+  "dNBR_Offset_BL",
+  "RdNBR",
+  "RdNBR_BL",
+  "RBR",
+  "RBR_BL"
+)
+y_vars <- c(
+  "Firemort.BA.p",
+  "Firemort.trees.p",
+  "CHARHT_percMax",
+  "BOLESCORCH",
+  "CHARCOV")
+vars <- expand.grid(x = x_vars, y = y_vars, stringsAsFactors = FALSE)
+
+out <- plyr::mlply(.data = vars, function(x, y) { # or map2() without parallel
+  d <- get_dat(!!quo_name(y), !!quo_name(x),
+    file = "data/RockiesBurnSev_clean_20180124.csv",
+    max_predictor = 2500)
+  m <- fit_model(d, model = sm, predictors = "xscaled", iter = 400L, chains = 1L)
+  list(m = m, d = d, x = x, y = y)
+}, .parallel = TRUE)
+```
+
+Get AUC values:
+
+```{r, warning=FALSE}
+aucs <- map_df(out, function(x) {
+  predictions <- make_predictions_dat(model = x$m$model, f = x$m$f, d = x$d)
+  aucs_i <- make_roc(d = x$d, predictions = predictions, return_plot = FALSE)
+  data.frame(x = x$x, y = x$y, 
+    auc_mean = mean(aucs_i), auc_lwr = min(aucs_i), auc_upr = max(aucs_i))
+})
+```
+
+Plot comparisons:
+
+```{r}
+g <- ggplot(aucs, aes(x, y)) + 
+  viridis::scale_fill_viridis() +
+  xlab("") + ylab("")
+
+g + geom_tile(aes(fill = auc_mean))
+g + geom_tile(aes(fill = auc_lwr))
+g + geom_tile(aes(fill = auc_upr))
+```
+
+Ranked within field measurement?
+
+```{r}
+aucs %>% group_by(y) %>% 
+  arrange(-auc_mean) %>%
+  mutate(rank = seq_len(n())) %>% 
+  ggplot(aes(x, y)) + 
+  viridis::scale_fill_viridis(direction = -1) +
+  geom_tile(aes(fill = rank)) + 
+  xlab("") + ylab("")
+```
+
+Cross-val:
+
+```{r q1-cross-val}
+dir.create("data-generated", showWarnings = FALSE)
+d <- get_dat(Firemort.BA.p, RdNBR, file = "data/RockiesBurnSev_clean_20180124.csv")
+fires <- unique(d$group) %>% as.character()
+
+if (!file.exists("data-generated/q1-out-cv.rds")) {
+  out_cv <- plyr::mlply(.data = vars[1:4,], function(x, y) { # or map2() without parallel
+    d <- get_dat(!!quo_name(y), !!quo_name(x),
+      file = "data/RockiesBurnSev_clean_20180124.csv",
+      max_predictor = 2500)
+    m <- map(fires, function(x) {
+      fit_model(d = d[d$group != x, , drop = FALSE], model = sm, 
+        predictors = "xscaled", iter = 400L, chains = 1L, log_lik = FALSE)
+    })
+    p <- map2_df(m, fires, function(x, y) {
+      dd <- d[d$group == y, , drop = FALSE]
+      dd$prediction <- make_predictions_dat(d = dd, f = x$f, model = x$model)
+      dd
+    })
+    rhat <- map_dbl(m, function(mm) max(summary(mm$model)$summary[,"Rhat"]))
+    ess <- map_dbl(m, function(mm) max(summary(mm$model)$summary[,"n_eff"]))
+    list(p = p, d = d, x = x, y = y, rhat = rhat, ess = ess, fires = fires)
+  }, .parallel = TRUE)
+  saveRDS(out_cv, file = "data-generated/q1-out-cv.rds")
+} else {
+  out_cv <- readRDS("data-generated/q1-out-cv.rds")
+}
+```
+
