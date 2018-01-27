@@ -21,6 +21,7 @@ source("zoib-functions.R")
 library("tidyverse")
 library("rstan")
 library("doParallel")
+library("ggsidekick") # devtools::install_github("seananderson/ggsidekick")
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 sm <- stan_model("zoib1re.stan")
@@ -71,9 +72,9 @@ aucs <- map_df(out, function(x) {
 Plot comparisons:
 
 ```{r}
-g <- ggplot(aucs, aes(x, y)) + 
+g <- ggplot(aucs, aes(y, x)) + 
   viridis::scale_fill_viridis() +
-  xlab("") + ylab("")
+  xlab("") + ylab("") + theme_sleek()
 
 g + geom_tile(aes(fill = auc_mean))
 g + geom_tile(aes(fill = auc_lwr))
@@ -89,7 +90,7 @@ aucs %>% group_by(y) %>%
   ggplot(aes(x, y)) + 
   viridis::scale_fill_viridis(direction = -1) +
   geom_tile(aes(fill = rank)) + 
-  xlab("") + ylab("")
+  xlab("") + ylab("") + theme_sleek()
 ```
 
 Cross-val:
@@ -100,13 +101,13 @@ d <- get_dat(Firemort.BA.p, RdNBR, file = "data/RockiesBurnSev_clean_20180124.cs
 fires <- unique(d$group) %>% as.character()
 
 if (!file.exists("data-generated/q1-out-cv.rds")) {
-  out_cv <- plyr::mlply(.data = vars[1:4,], function(x, y) { # or map2() without parallel
+  out_cv <- plyr::mlply(.data = vars, function(x, y) { # or map2() without parallel
     d <- get_dat(!!quo_name(y), !!quo_name(x),
       file = "data/RockiesBurnSev_clean_20180124.csv",
       max_predictor = 2500)
     m <- map(fires, function(x) {
       fit_model(d = d[d$group != x, , drop = FALSE], model = sm, 
-        predictors = "xscaled", iter = 400L, chains = 1L, log_lik = FALSE)
+        predictors = "xscaled", iter = 600L, chains = 1L, log_lik = FALSE)
     })
     p <- map2_df(m, fires, function(x, y) {
       dd <- d[d$group == y, , drop = FALSE]
@@ -123,3 +124,41 @@ if (!file.exists("data-generated/q1-out-cv.rds")) {
 }
 ```
 
+Get AUC values:
+
+```{r, warning=FALSE}
+aucs <- map_df(out_cv, function(x) {
+  aucs_i <- make_roc(d = x$p, predictions = x$p$prediction, return_plot = FALSE)
+  data.frame(x = x$x, y = x$y, 
+    auc_mean = mean(aucs_i), auc_lwr = min(aucs_i), auc_upr = max(aucs_i))
+})
+```
+
+Plot comparisons:
+
+```{r}
+g <- ggplot(aucs, aes(y, x)) + 
+  viridis::scale_fill_viridis() +
+  xlab("") + ylab("") + theme_sleek() + 
+  coord_cartesian(expand = FALSE)
+
+g + geom_tile(aes(fill = auc_mean))
+g + geom_tile(aes(fill = auc_lwr))
+g + geom_tile(aes(fill = auc_upr))
+```
+
+Ranked within field measurement?
+
+```{r}
+aucs %>% group_by(y) %>% 
+  arrange(-auc_mean) %>%
+  mutate(rank = seq_len(n())) %>% 
+  group_by(x) %>% 
+  mutate(mean_rank = median(rank)) %>% 
+  ggplot(aes(y, forcats::fct_reorder(x, -mean_rank))) + 
+  viridis::scale_fill_viridis(direction = -1) +
+  geom_tile(aes(fill = rank)) + 
+  xlab("") + ylab("") +
+  theme_sleek() +
+  coord_cartesian(expand = FALSE)
+```
