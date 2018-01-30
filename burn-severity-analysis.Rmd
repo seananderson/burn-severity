@@ -1,5 +1,5 @@
 ---
-title: "Title here"
+title: "Burn severity calibration"
 output: html_document
 ---
 
@@ -87,13 +87,17 @@ Ranked within field measurement?
 aucs %>% group_by(y) %>% 
   arrange(-auc_mean) %>%
   mutate(rank = seq_len(n())) %>% 
-  ggplot(aes(x, y)) + 
+  group_by(x) %>% 
+  mutate(mean_rank = median(rank)) %>% 
+  ggplot(aes(y, forcats::fct_reorder(x, -mean_rank))) + 
   viridis::scale_fill_viridis(direction = -1) +
   geom_tile(aes(fill = rank)) + 
-  xlab("") + ylab("") + theme_sleek()
+  xlab("") + ylab("") +
+  theme_sleek() +
+  coord_cartesian(expand = FALSE)
 ```
 
-Cross-val:
+Cross-val. Go-go-gadget 8 cores:
 
 ```{r q1-cross-val}
 dir.create("data-generated", showWarnings = FALSE)
@@ -147,7 +151,7 @@ g + geom_tile(aes(fill = auc_lwr))
 g + geom_tile(aes(fill = auc_upr))
 ```
 
-Ranked within field measurement?
+Ranked within field measurement and ordered by median rank:
 
 ```{r}
 aucs %>% group_by(y) %>% 
