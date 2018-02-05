@@ -14,7 +14,8 @@ knitr::opts_chunk$set(
 )
 ```
 
-We'll start by loading some packages and reading in a number of functions that are included in `zoib-functions.R`:
+We'll start by loading some packages and reading in a number of functions that
+are included in `zoib-functions.R`:
 
 ```{r functions, cache=FALSE, warning=FALSE, message=FALSE, results='hide'}
 source("zoib-functions.R")
@@ -28,7 +29,7 @@ sm <- stan_model("zoib1re.stan")
 registerDoParallel(cores = parallel::detectCores())
 ```
 
-Fit all satelite predictors to all field measure responses:
+Fit all satellite predictors to all field measure responses:
 
 ```{r fit-all-q1, cache=TRUE}
 x_vars <- c(
@@ -49,30 +50,34 @@ y_vars <- c(
   "CHARCOV")
 vars <- expand.grid(x = x_vars, y = y_vars, stringsAsFactors = FALSE)
 
-out <- plyr::mlply(.data = vars, function(x, y) { # or map2() without parallel
+out_q1 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without parallel
   d <- get_dat(!!quo_name(y), !!quo_name(x),
     file = "data/RockiesBurnSev_clean_20180124.csv",
     max_predictor = 2500)
-  m <- fit_model(d, model = sm, predictors = "xscaled", iter = 400L, chains = 1L)
+  m <- fit_model(d, model = sm, predictors = "xscaled", iter = 1000L, chains = 1L)
   list(m = m, d = d, x = x, y = y)
 }, .parallel = TRUE)
 ```
 
 Get AUC values:
 
-```{r, warning=FALSE}
-aucs <- map_df(out, function(x) {
+```{r aucs_q1, warning=FALSE, cache=TRUE, dependson='fit-all-q1'}
+library(loo)
+aucs_q1 <- plyr::ldply(out_q1, function(x) {
   predictions <- make_predictions_dat(model = x$m$model, f = x$m$f, d = x$d)
   aucs_i <- make_roc(d = x$d, predictions = predictions, return_plot = FALSE)
-  data.frame(x = x$x, y = x$y, 
-    auc_mean = mean(aucs_i), auc_lwr = min(aucs_i), auc_upr = max(aucs_i))
-})
+  looic <- tryCatch({loo(extract_log_lik(x$m$model))$looic}, error = function(e) NA )  
+  b <- broom::tidyMCMC(x$m$model, rhat = TRUE, ess = TRUE)
+  data.frame(x = x$x, y = x$y,
+    auc_mean = mean(aucs_i), auc_lwr = min(aucs_i), auc_upr = max(aucs_i),
+    looic = looic, ess = min(b$ess), rhat = max(b$rhat), stringsAsFactors = FALSE)
+}, .parallel = TRUE)
 ```
 
 Plot comparisons:
 
 ```{r}
-g <- ggplot(aucs, aes(y, x)) + 
+g <- ggplot(aucs_q1, aes(y, x)) +
   viridis::scale_fill_viridis() +
   xlab("") + ylab("") + theme_sleek()
 
@@ -84,14 +89,14 @@ g + geom_tile(aes(fill = auc_upr))
 Ranked within field measurement?
 
 ```{r}
-aucs %>% group_by(y) %>% 
+aucs_q1 %>% group_by(y) %>%
   arrange(-auc_mean) %>%
-  mutate(rank = seq_len(n())) %>% 
-  group_by(x) %>% 
-  mutate(mean_rank = median(rank)) %>% 
-  ggplot(aes(y, forcats::fct_reorder(x, -mean_rank))) + 
+  mutate(rank = seq_len(n())) %>%
+  group_by(x) %>%
+  mutate(mean_rank = median(rank)) %>%
+  ggplot(aes(y, forcats::fct_reorder(x, -mean_rank))) +
   viridis::scale_fill_viridis(direction = -1) +
-  geom_tile(aes(fill = rank)) + 
+  geom_tile(aes(fill = rank)) +
   xlab("") + ylab("") +
   theme_sleek() +
   coord_cartesian(expand = FALSE)
@@ -99,7 +104,7 @@ aucs %>% group_by(y) %>%
 
 Cross-val. Go-go-gadget 8 cores:
 
-```{r q1-cross-val}
+```{r q1-cross-val, cache=TRUE}
 dir.create("data-generated", showWarnings = FALSE)
 d <- get_dat(Firemort.BA.p, RdNBR, file = "data/RockiesBurnSev_clean_20180124.csv")
 fires <- unique(d$group) %>% as.character()
@@ -110,8 +115,8 @@ if (!file.exists("data-generated/q1-out-cv.rds")) {
       file = "data/RockiesBurnSev_clean_20180124.csv",
       max_predictor = 2500)
     m <- map(fires, function(x) {
-      fit_model(d = d[d$group != x, , drop = FALSE], model = sm, 
-        predictors = "xscaled", iter = 600L, chains = 1L, log_lik = FALSE)
+      fit_model(d = d[d$group != x, , drop = FALSE], model = sm,
+        predictors = "xscaled", iter = 1000L, chains = 1L, log_lik = FALSE)
     })
     p <- map2_df(m, fires, function(x, y) {
       dd <- d[d$group == y, , drop = FALSE]
@@ -131,19 +136,20 @@ if (!file.exists("data-generated/q1-out-cv.rds")) {
 Get AUC values:
 
 ```{r, warning=FALSE}
-aucs <- map_df(out_cv, function(x) {
+aucs_cv <- map_df(out_cv, function(x) {
   aucs_i <- make_roc(d = x$p, predictions = x$p$prediction, return_plot = FALSE)
-  data.frame(x = x$x, y = x$y, 
-    auc_mean = mean(aucs_i), auc_lwr = min(aucs_i), auc_upr = max(aucs_i))
+  data.frame(x = x$x, y = x$y,
+    auc_mean = mean(aucs_i), auc_lwr = min(aucs_i), auc_upr = max(aucs_i),
+    stringsAsFactors = FALSE)
 })
 ```
 
 Plot comparisons:
 
 ```{r}
-g <- ggplot(aucs, aes(y, x)) + 
+g <- ggplot(aucs_cv, aes(y, x)) +
   viridis::scale_fill_viridis() +
-  xlab("") + ylab("") + theme_sleek() + 
+  xlab("") + ylab("") + theme_sleek() +
   coord_cartesian(expand = FALSE)
 
 g + geom_tile(aes(fill = auc_mean))
@@ -154,15 +160,157 @@ g + geom_tile(aes(fill = auc_upr))
 Ranked within field measurement and ordered by median rank:
 
 ```{r}
-aucs %>% group_by(y) %>% 
+aucs_cv %>% group_by(y) %>%
   arrange(-auc_mean) %>%
-  mutate(rank = seq_len(n())) %>% 
-  group_by(x) %>% 
-  mutate(mean_rank = median(rank)) %>% 
-  ggplot(aes(y, forcats::fct_reorder(x, -mean_rank))) + 
+  mutate(rank = seq_len(n())) %>%
+  group_by(x) %>%
+  mutate(mean_rank = median(rank)) %>%
+  ggplot(aes(y, forcats::fct_reorder(x, -mean_rank))) +
   viridis::scale_fill_viridis(direction = -1) +
-  geom_tile(aes(fill = rank)) + 
+  geom_tile(aes(fill = rank)) +
   xlab("") + ylab("") +
   theme_sleek() +
   coord_cartesian(expand = FALSE)
+```
+
+# Question 2: can we improve with easily available GIS data?
+
+At this point going to use the best predictors for each response only. Will be including the main effects and the interactions.
+
+```{r fit-all-q2, cache=TRUE}
+x_vars <- c("RBR")
+extra_x_vars <- paste("xscaled", c("lat", "heatload", "slope", "prenbr"), sep = "*")
+y_vars <- c(
+  "Firemort.BA.p",
+  "Firemort.trees.p",
+  "CHARHT_percMax",
+  "BOLESCORCH",
+  "CHARCOV")
+vars <- expand.grid(x = x_vars, y = y_vars, stringsAsFactors = FALSE)
+vars$x[vars$y %in% c("CHARCOV", "CHARHT_percMax")] <- "RdNBR"
+
+out_q2 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without parallel
+  d <- get_dat(!!quo_name(y), !!quo_name(x),
+    file = "data/RockiesBurnSev_clean_20180124.csv",
+    max_predictor = 2500)
+  m <- fit_model(d, model = sm,
+    predictors = c("xscaled", extra_x_vars),
+    iter = 1000L, chains = 1L)
+  list(m = m, d = d, x = x, y = y)
+}, .parallel = TRUE)
+```
+
+Get AUC values:
+
+```{r, warning=FALSE}
+aucs_q2 <- plyr::ldply(out_q2, function(x) {
+  predictions <- make_predictions_dat(model = x$m$model, f = x$m$f, d = x$d)
+  aucs_i <- make_roc(d = x$d, predictions = predictions, return_plot = FALSE)
+  looic <- tryCatch({loo(extract_log_lik(x$m$model))$looic}, error = function(e) NA )  
+  b <- broom::tidyMCMC(x$m$model, rhat = TRUE, ess = TRUE)
+  data.frame(x = x$x, y = x$y,
+    auc_mean = mean(aucs_i), auc_lwr = min(aucs_i), auc_upr = max(aucs_i),
+    looic = looic, ess = min(b$ess), rhat = max(b$rhat), stringsAsFactors = FALSE)
+}, .parallel = TRUE)
+```
+
+Check LOOIC:
+
+```{r}
+semi_join(aucs_q1, select(aucs_q2, x, y))
+aucs_q2
+```
+
+A possible type of plot looking at the increase in the range of AUC. Might be better done for a cross validation set. This is currently done on the full data set. Alternatively could do something with LOOIC (which is analogous to AIC).
+
+```{r}
+aucs_q1$q <- "q1"
+aucs_q2$q <- "q2"
+temp <- bind_rows(semi_join(aucs_q1, select(aucs_q2, x, y)), aucs_q2) %>% 
+  filter(rhat < 1.1, ess > 50) %>% 
+  mutate(y = as.factor(y)) %>% 
+  mutate(y_val = ifelse(q == "q1", as.numeric(y) - 0.1, as.numeric(y) + 0.1))
+labs <- select(temp, y) %>% mutate(y_val = as.numeric(y)) %>% unique() %>% 
+  arrange(y_val)
+ggplot(temp, aes(y_val, auc_mean, colour = q)) + 
+  geom_point(position = position_dodge(width = 0.1)) +
+  coord_flip() +
+  geom_segment(aes(y = auc_lwr, yend = auc_upr, x = y_val, xend = y_val)) +
+  scale_x_continuous(breaks = labs$y_val, labels = labs$y) +
+  xlab("") + ylab("AUC") +
+  theme_sleek()
+```
+
+# Q3 How are the "best" models affected by important characteristics of stand structure, that are NOT easily attainable?
+
+Just for `Firemort.BA.p` this time. Will come back to this and repeat over all responses.
+
+Because the quadratic mean diameter predictors are not available for the 0s (not burned at all) we will have to use a "OIB" one-inflated-beta GLMM. Here I am including all of the interactions in a single model. Alternatively, we could do each individually. Note that each predictor has been scaled by dividing by 2 SDs and subtracting its mean. This puts them on approximately the same scale. 
+
+```{r}
+sm <- stan_model("zoib1re.stan")
+sm_oib <- stan_model("oib1re.stan")
+d <- get_dat(Firemort.BA.p, RBR, file = "data/RockiesBurnSev_clean_20180124.csv")
+x_vars <- tolower(c("xscaled"))
+extra_x_vars <- c("qmd_laf", "qmd_all", "ba_ha", "stems_ha", "redgraygreenstage_ba_p")
+x_vars <- paste(x_vars, extra_x_vars, sep = " * ")
+
+dd <- filter(d, !is.na(qmd_laf), !is.na(qmd_all))
+m <- fit_model_oib(dd, sm_oib, predictors = x_vars)
+```
+
+Let's plot out the main effect coefficients and the interaction coefficients. This takes a little bit of data manipulation first. The dots are medians, the thick lines are 50% credible intervals, and the thin lines are 95% credible intervals.
+
+```{r plot-interactions, cache=TRUE, fig.height=6.5}
+terms <- tibble(
+  name = colnames(m$stan_dat$Xp_ij),
+  num = as.character(seq_along(colnames(m$stan_dat$Xp_ij)))
+)
+
+models <- tibble(model = c("0", "1", "p"),
+  model_full = factor(
+    c("Pr(not 0)", "Pr(1)", "Proportion"),
+    levels =
+      c("Pr(not 0)", "Proportion", "Pr(1)")
+  ))
+models <- filter(models, model != 0) # oib vs zoib
+
+b <- broom::tidyMCMC(m$model, estimate.method = "median", conf.int = TRUE)
+b_inner <- broom::tidyMCMC(m$model, estimate.method = "median", conf.int = TRUE,
+  conf.level = 0.5) %>%
+  rename(conf.low.25 = conf.low, conf.high.75 = conf.high) %>%
+  select(-estimate, -std.error)
+
+b <- b %>% inner_join(b_inner, by = "term") %>%
+  filter(grepl("b[01p]+_j", term)) %>%
+  filter(!grepl("\\[1\\]", term)) %>%
+  mutate(num = gsub("b[01p]+_j\\[([0-9]+)\\]", "\\1", term)) %>%
+  mutate(model = gsub("b([01p]+)_j\\[([0-9]+)\\]", "\\1", term)) %>%
+  left_join(terms, by = "num") %>%
+  mutate(name = gsub("xscaled", " RdNBR", name))
+
+pal <- RColorBrewer::brewer.pal(4, "Set2")
+pal <- c(pal[1], "grey50", pal[2])
+b %>%
+  mutate(estimate = ifelse(model == 0, -estimate, estimate)) %>%
+  mutate(conf.low = ifelse(model == 0, -conf.low, conf.low)) %>%
+  mutate(conf.high = ifelse(model == 0, -conf.high, conf.high)) %>%
+  mutate(conf.high.75 = ifelse(model == 0, -conf.high.75, conf.high.75)) %>%
+  mutate(conf.low.25 = ifelse(model == 0, -conf.low.25, conf.low.25)) %>%
+  mutate(interaction = grepl(":", name)) %>%
+  inner_join(models, by = "model") %>%
+  mutate(xvar = fct_relevel(name, " RdNBR", after = Inf)) %>%
+  ggplot(aes(y = estimate, x = xvar,
+    colour = model_full, shape = interaction)) +
+  geom_hline(yintercept = 0, lty = 2, col = "grey55") +
+  geom_linerange(aes(ymin = conf.low.25, ymax = conf.high.75),
+    position = position_dodge(width = 0.4), size = 1.2) +
+  geom_pointrange(aes(ymin = conf.low, ymax = conf.high),
+    position = position_dodge(width = 0.4)) +
+  xlab("") +
+  ggsidekick::theme_sleek() +
+  coord_flip() +
+  scale_color_manual(values = pal) +
+  scale_shape_manual(values = c(19, 21)) +
+  labs(colour = "Model", shape = "Interaction", y = "Coefficient value")
 ```

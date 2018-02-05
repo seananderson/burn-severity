@@ -332,7 +332,7 @@ do.call("grid.arrange", c(rocs, ncol=nCol))
 # Random thoughts
 
 
-The advantages in my eyes are:
+The advantages to my eyes are:
 
 - properly representing the data-generating process
 - better fit to the data for the zeros

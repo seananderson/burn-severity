@@ -20,9 +20,56 @@ get_dat <- function(response, main_predictor,
       group = as.factor(tolower(group)),
       group_id = as.integer(group)) %>%
     arrange(group_id, x)
+
   names(d) <- tolower(names(d))
   names(d) <- gsub("\\.", "_", names(d))
+
+  d <- dplyr::mutate_at(d,
+    c("lat",  "heatload",  "slope", "prenbr", "qmd_laf", "qmd_all",
+      "ba_ha", "stems_ha", "redgraygreenstage_ba_p"),
+    function(x) arm::rescale(x))
   d
+}
+
+prep_stan_dat_oib <- function(d, predictors = "xscaled") {
+
+  # in case some missing now (e.g. cross-validation):
+  d <- d %>% mutate(
+    group = as.factor(as.character(group)),
+    group_id = as.integer(group)) %>%
+    arrange(group_id, x)
+  dp <- filter(d, !is.na(yp))
+
+  # N0 <- nrow(d)
+  N1 <- nrow(d)
+  Np <- nrow(dp)
+
+  # f0 <- as.formula(paste("y0 ~", paste(predictors, collapse = " + ")))
+  f1 <- as.formula(paste("y1 ~", paste(predictors, collapse = " + ")))
+  fp <- as.formula(paste("y ~", paste(predictors, collapse = " + ")))
+  # mm0 <- as.matrix(model.matrix(f0, data = d))
+  mm1 <- as.matrix(model.matrix(f1, data = d))
+  mmp <- as.matrix(model.matrix(fp, data = dp))
+
+  sd <- list(
+    # N0 = N0,
+    N1 = N1,
+    Np = Np,
+    J01 = ncol(mm1),
+    Jp = ncol(mmp),
+    # X0_ij = mm0,
+    X1_ij = mm1,
+    Xp_ij = mmp,
+    # y0_i = d$y0,
+    y1_i = d$y1,
+    yp_i = dp$y,
+
+    Ng = length(unique(as.character(d$group))),
+    # group_id0 = d$group_id,
+    group_id1 = d$group_id,
+    group_idp = dp$group_id)
+
+  list(stan_dat = sd, f = fp)
 }
 
 prep_stan_dat <- function(d, predictors = "xscaled") {
@@ -81,6 +128,22 @@ fit_model <- function(d, model, predictors = "xscaled", iter = 800L, chains = 4L
   )
   list(model = m, data = d, f = prep$f, stan_dat = prep$stan_dat)
 }
+
+fit_model_oib <- function(d, model, predictors = "xscaled", iter = 800L, chains = 4L,
+  adapt_delta = 0.8, log_lik = TRUE, ...) {
+  library(rstan)
+  pars <- c("b1_j", "bp_j", "phi", "sigma_z", "z1_g", "zp_g")
+  if (log_lik) pars <- c(pars, "log_lik")
+  prep <- prep_stan_dat_oib(dd, predictors = predictors)
+  m <- sampling(sm_oib,
+    data = prep$stan_dat,
+    iter = iter, chains = chains,
+    pars = pars,
+    control = list(adapt_delta = adapt_delta, max_treedepth = 20), ...
+  )
+  list(model = m, data = d, f = prep$f, stan_dat = prep$stan_dat)
+}
+
 
 make_predictions <- function(d, f, model, Npred = 200L, use_new_data = TRUE,
   re = TRUE, sd_x = NULL, mean_x = NULL) {
