@@ -1,11 +1,15 @@
 get_dat <- function(response, main_predictor,
-  file = "ALL_SHOBS_2010_2014_PLOTS_MASTER_w_CO_FINAL_20171029.csv",
+  file = "RockiesBurnSev_clean_20180216.csv",
   max_predictor = 2500) {
 
   response <- enquo(response)
   main_predictor <- enquo(main_predictor)
 
   d <- suppressMessages(read_csv(file))
+
+  if ("pre_NBR" %in% names(d)) # col name was changed
+    d <- rename(d, preNBR = pre_NBR)
+
   d <- select(d, !!response, !!main_predictor, FIRE,
     lat, HeatLoad, slope, preNBR, # Q2
     slope, HeatLoad, # Q3
@@ -134,7 +138,7 @@ fit_model_oib <- function(d, model, predictors = "xscaled", iter = 800L, chains 
   library(rstan)
   pars <- c("b1_j", "bp_j", "phi", "sigma_z", "z1_g", "zp_g")
   if (log_lik) pars <- c(pars, "log_lik")
-  prep <- prep_stan_dat_oib(dd, predictors = predictors)
+  prep <- prep_stan_dat_oib(d, predictors = predictors)
   m <- sampling(sm_oib,
     data = prep$stan_dat,
     iter = iter, chains = chains,
@@ -142,6 +146,39 @@ fit_model_oib <- function(d, model, predictors = "xscaled", iter = 800L, chains 
     control = list(adapt_delta = adapt_delta, max_treedepth = 20), ...
   )
   list(model = m, data = d, f = prep$f, stan_dat = prep$stan_dat)
+}
+
+make_predictions_oib <- function(d, f, model, Npred = 200L, use_new_data = TRUE,
+  re = TRUE, sd_x = NULL, mean_x = NULL) {
+
+  if (use_new_data) {
+    d_pred <- expand.grid(
+      xscaled = seq(min(d$xscaled), max(d$xscaled), length.out = Npred),
+      group_id = unique(d$group_id), y = 1)
+  } else {
+    d_pred <- d
+    Npred
+  }
+  e <- rstan::extract(model)
+
+  mm_pred <- as.matrix(model.matrix(f, data = d_pred))
+
+  pred_p <- plogis(mm_pred %*% t(e$bp_j))
+  pred_1 <- plogis(mm_pred %*% t(e$b1_j))
+  y_pred <- pred_1 + (1 - pred_1) * pred_p
+  d_pred$y_pred <- y_pred
+
+  pred_df <- data.frame(
+    xscaled = d_pred$xscaled,
+    group = d_pred$group_id,
+    est = apply(y_pred, 1, quantile, probs = 0.5),
+    lwr = apply(y_pred, 1, quantile, probs = 0.025),
+    upr = apply(y_pred, 1, quantile, probs = 0.975))
+
+  if (is.null(sd_x))
+    pred_df$x <- d_pred$xscaled * 2 * sd(d$x) + mean(d$x)
+
+  pred_df
 }
 
 

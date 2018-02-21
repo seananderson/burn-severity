@@ -29,6 +29,8 @@ sm <- stan_model("zoib1re.stan")
 registerDoParallel(cores = parallel::detectCores())
 ```
 
+# Question 1: best simple bivariate models?
+
 Fit all satellite predictors to all field measure responses:
 
 ```{r fit-all-q1, cache=TRUE}
@@ -54,7 +56,7 @@ out_q1 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without paralle
   d <- get_dat(!!quo_name(y), !!quo_name(x),
     file = "data/RockiesBurnSev_clean_20180124.csv",
     max_predictor = 2500)
-  m <- fit_model(d, model = sm, predictors = "xscaled", iter = 1000L, chains = 1L)
+  m <- fit_model(d, model = sm, predictors = "xscaled", iter = 500L, chains = 1L)
   list(m = m, d = d, x = x, y = y)
 }, .parallel = TRUE)
 ```
@@ -79,7 +81,8 @@ Plot comparisons:
 ```{r}
 g <- ggplot(aucs_q1, aes(y, x)) +
   viridis::scale_fill_viridis() +
-  xlab("") + ylab("") + theme_sleek()
+  xlab("") + ylab("") + theme_sleek() +
+  coord_cartesian(expand = FALSE)
 
 g + geom_tile(aes(fill = auc_mean))
 g + geom_tile(aes(fill = auc_lwr))
@@ -106,17 +109,17 @@ Cross-val. Go-go-gadget 8 cores:
 
 ```{r q1-cross-val, cache=TRUE}
 dir.create("data-generated", showWarnings = FALSE)
-d <- get_dat(Firemort.BA.p, RdNBR, file = "data/RockiesBurnSev_clean_20180124.csv")
+d <- get_dat(Firemort.BA.p, RdNBR, file = "data/RockiesBurnSev_clean_20180216.csv")
 fires <- unique(d$group) %>% as.character()
 
 if (!file.exists("data-generated/q1-out-cv.rds")) {
   out_cv <- plyr::mlply(.data = vars, function(x, y) { # or map2() without parallel
     d <- get_dat(!!quo_name(y), !!quo_name(x),
-      file = "data/RockiesBurnSev_clean_20180124.csv",
+      file = "data/RockiesBurnSev_clean_20180216.csv",
       max_predictor = 2500)
     m <- map(fires, function(x) {
       fit_model(d = d[d$group != x, , drop = FALSE], model = sm,
-        predictors = "xscaled", iter = 1000L, chains = 1L, log_lik = FALSE)
+        predictors = "xscaled", iter = 500L, chains = 1L, log_lik = FALSE)
     })
     p <- map2_df(m, fires, function(x, y) {
       dd <- d[d$group == y, , drop = FALSE]
@@ -191,11 +194,11 @@ vars$x[vars$y %in% c("CHARCOV", "CHARHT_percMax")] <- "RdNBR"
 
 out_q2 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without parallel
   d <- get_dat(!!quo_name(y), !!quo_name(x),
-    file = "data/RockiesBurnSev_clean_20180124.csv",
+    file = "data/RockiesBurnSev_clean_20180216",
     max_predictor = 2500)
   m <- fit_model(d, model = sm,
     predictors = c("xscaled", extra_x_vars),
-    iter = 1000L, chains = 1L)
+    iter = 500L, chains = 1L)
   list(m = m, d = d, x = x, y = y)
 }, .parallel = TRUE)
 ```
@@ -227,7 +230,7 @@ A possible type of plot looking at the increase in the range of AUC. Might be be
 aucs_q1$q <- "q1"
 aucs_q2$q <- "q2"
 temp <- bind_rows(semi_join(aucs_q1, select(aucs_q2, x, y)), aucs_q2) %>% 
-  filter(rhat < 1.1, ess > 50) %>% 
+  filter(rhat < 1.2, ess > 15) %>% # TODO increase!
   mutate(y = as.factor(y)) %>% 
   mutate(y_val = ifelse(q == "q1", as.numeric(y) - 0.1, as.numeric(y) + 0.1))
 labs <- select(temp, y) %>% mutate(y_val = as.numeric(y)) %>% unique() %>% 
@@ -250,23 +253,39 @@ Because the quadratic mean diameter predictors are not available for the 0s (not
 ```{r}
 sm <- stan_model("zoib1re.stan")
 sm_oib <- stan_model("oib1re.stan")
-d <- get_dat(Firemort.BA.p, RBR, file = "data/RockiesBurnSev_clean_20180124.csv")
+
+x_vars <- c(
+  "RBR",
+  "RdNBR",
+  "RdNBR",
+  "RBR",
+  "RBR"
+)
+y_vars <- c(
+  "BOLESCORCH",
+  "CHARCOV",
+  "CHARHT_percMax",
+  "Firemort.BA.p",
+  "Firemort.trees.p")
+vars <- data.frame(x = x_vars, y = y_vars, stringsAsFactors = FALSE)
+
 x_vars <- tolower(c("xscaled"))
 extra_x_vars <- c("qmd_laf", "qmd_all", "ba_ha", "stems_ha", "redgraygreenstage_ba_p")
 x_vars <- paste(x_vars, extra_x_vars, sep = " * ")
 
-dd <- filter(d, !is.na(qmd_laf), !is.na(qmd_all))
-m <- fit_model_oib(dd, sm_oib, predictors = x_vars)
+out_q3 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without parallel
+  d <- get_dat(!!quo_name(y), !!quo_name(x),
+    file = "data/RockiesBurnSev_clean_20180124.csv",
+    max_predictor = 2500)
+  dd <- filter(d, !is.na(qmd_laf), !is.na(qmd_all))
+  m <- fit_model_oib(dd, sm_oib, predictors = x_vars, iter = 2000, chains = 4)
+  list(m = m, d = dd, x = x, y = y)
+}, .parallel = FALSE)
 ```
 
 Let's plot out the main effect coefficients and the interaction coefficients. This takes a little bit of data manipulation first. The dots are medians, the thick lines are 50% credible intervals, and the thin lines are 95% credible intervals.
 
 ```{r plot-interactions, cache=TRUE, fig.height=6.5}
-terms <- tibble(
-  name = colnames(m$stan_dat$Xp_ij),
-  num = as.character(seq_along(colnames(m$stan_dat$Xp_ij)))
-)
-
 models <- tibble(model = c("0", "1", "p"),
   model_full = factor(
     c("Pr(not 0)", "Pr(1)", "Proportion"),
@@ -275,42 +294,119 @@ models <- tibble(model = c("0", "1", "p"),
   ))
 models <- filter(models, model != 0) # oib vs zoib
 
-b <- broom::tidyMCMC(m$model, estimate.method = "median", conf.int = TRUE)
-b_inner <- broom::tidyMCMC(m$model, estimate.method = "median", conf.int = TRUE,
-  conf.level = 0.5) %>%
-  rename(conf.low.25 = conf.low, conf.high.75 = conf.high) %>%
-  select(-estimate, -std.error)
+plot_q3_coefs <- function(obj) {
+  
+  m <- obj$m
+  x_name <- paste0(" ", obj$x) # " " for fct order
+  
+  terms <- tibble(
+    name = colnames(m$stan_dat$Xp_ij),
+    num = as.character(seq_along(colnames(m$stan_dat$Xp_ij)))
+  )
+  
+  b <- broom::tidyMCMC(m$model, estimate.method = "median", conf.int = TRUE)
+  b_inner <- broom::tidyMCMC(m$model, estimate.method = "median", conf.int = TRUE,
+    conf.level = 0.5) %>%
+    rename(conf.low.25 = conf.low, conf.high.75 = conf.high) %>%
+    select(-estimate, -std.error)
+  
+  b <- b %>% inner_join(b_inner, by = "term") %>%
+    filter(grepl("b[01p]+_j", term)) %>%
+    filter(!grepl("\\[1\\]", term)) %>%
+    mutate(num = gsub("b[01p]+_j\\[([0-9]+)\\]", "\\1", term)) %>%
+    mutate(model = gsub("b([01p]+)_j\\[([0-9]+)\\]", "\\1", term)) %>%
+    left_join(terms, by = "num") %>%
+    mutate(name = gsub("xscaled", x_name, name))
+  
+  pal <- RColorBrewer::brewer.pal(4, "Set2")
+  pal <- c(pal[1], "grey50", pal[2])
+  
+  b %>%
+    mutate(estimate = ifelse(model == 0,     -estimate,     estimate)) %>%
+    mutate(conf.low = ifelse(model == 0,     -conf.low,     conf.low)) %>%
+    mutate(conf.high = ifelse(model == 0,    -conf.high,    conf.high)) %>%
+    mutate(conf.high.75 = ifelse(model == 0, -conf.high.75, conf.high.75)) %>%
+    mutate(conf.low.25 = ifelse(model == 0,  -conf.low.25,  conf.low.25)) %>%
+    mutate(interaction = grepl(":", name)) %>%
+    inner_join(models, by = "model") %>%
+    mutate(xvar = fct_relevel(name, x_name, after = Inf)) %>%
+    ggplot(aes(y = estimate, x = xvar,
+      colour = model_full, shape = interaction)) +
+    geom_hline(yintercept = 0, lty = 2, col = "grey55") +
+    geom_linerange(aes(ymin = conf.low.25, ymax = conf.high.75),
+      position = position_dodge(width = 0.4), size = 1.2) +
+    geom_pointrange(aes(ymin = conf.low, ymax = conf.high),
+      position = position_dodge(width = 0.4)) +
+    xlab("") +
+    ggsidekick::theme_sleek() +
+    coord_flip() +
+    scale_color_manual(values = pal) +
+    scale_shape_manual(values = c(19, 21)) +
+    labs(colour = "Model", shape = "Interaction", y = "Coefficient value")
+}
 
-b <- b %>% inner_join(b_inner, by = "term") %>%
-  filter(grepl("b[01p]+_j", term)) %>%
-  filter(!grepl("\\[1\\]", term)) %>%
-  mutate(num = gsub("b[01p]+_j\\[([0-9]+)\\]", "\\1", term)) %>%
-  mutate(model = gsub("b([01p]+)_j\\[([0-9]+)\\]", "\\1", term)) %>%
-  left_join(terms, by = "num") %>%
-  mutate(name = gsub("xscaled", " RdNBR", name))
-
-pal <- RColorBrewer::brewer.pal(4, "Set2")
-pal <- c(pal[1], "grey50", pal[2])
-b %>%
-  mutate(estimate = ifelse(model == 0, -estimate, estimate)) %>%
-  mutate(conf.low = ifelse(model == 0, -conf.low, conf.low)) %>%
-  mutate(conf.high = ifelse(model == 0, -conf.high, conf.high)) %>%
-  mutate(conf.high.75 = ifelse(model == 0, -conf.high.75, conf.high.75)) %>%
-  mutate(conf.low.25 = ifelse(model == 0, -conf.low.25, conf.low.25)) %>%
-  mutate(interaction = grepl(":", name)) %>%
-  inner_join(models, by = "model") %>%
-  mutate(xvar = fct_relevel(name, " RdNBR", after = Inf)) %>%
-  ggplot(aes(y = estimate, x = xvar,
-    colour = model_full, shape = interaction)) +
-  geom_hline(yintercept = 0, lty = 2, col = "grey55") +
-  geom_linerange(aes(ymin = conf.low.25, ymax = conf.high.75),
-    position = position_dodge(width = 0.4), size = 1.2) +
-  geom_pointrange(aes(ymin = conf.low, ymax = conf.high),
-    position = position_dodge(width = 0.4)) +
-  xlab("") +
-  ggsidekick::theme_sleek() +
-  coord_flip() +
-  scale_color_manual(values = pal) +
-  scale_shape_manual(values = c(19, 21)) +
-  labs(colour = "Model", shape = "Interaction", y = "Coefficient value")
+p_q3 <- lapply(out_q3, function(x) plot_q3_coefs(x))
+library(gridExtra)
+n <- length(p_q3)
+nCol <- floor(sqrt(n))
+do.call("grid.arrange", c(p_q3, ncol = nCol))
 ```
+
+```{r}
+plot_interaction <- function(obj, int_var, int_lab, xlab, quant = c(0.1, 0.9)) {
+  
+  newdata <- obj$d
+  cn <- colnames(obj$m$stan_dat$Xp_ij)
+  cn <- cn[!grepl("\\(", cn)]
+  cn <- cn[!grepl("\\:", cn)]
+  cn <- cn[!grepl("xscaled", cn)]
+  newdata[,cn] <- 0
+  newdata[, "xscaled"] <- seq(min(newdata[, "xscaled"]), 
+    max(newdata[, "xscaled"]), 
+    length.out = nrow(newdata))
+  
+  newdata[,int_var] <- quantile(obj$d$ba_ha, quant[[1]])
+  newdata$level <- as.character(quant[[1]])
+  newdata2 <- newdata
+  newdata2[,int_var] <- quantile(obj$d$ba_ha, quant[[2]])
+  newdata2$level <- as.character(quant[[2]])
+  
+  newdata <- bind_rows(newdata, newdata2)
+  
+  p <- make_predictions_oib(d = newdata, f = obj$m$f, 
+    model = obj$m$model, re = FALSE, use_new_data = FALSE)
+  p$level <- newdata$level 
+  
+  cols <- c(RColorBrewer::brewer.pal(5, "Blues")[[4]],
+    RColorBrewer::brewer.pal(5, "Greys")[[4]])
+  
+  # cols <- RColorBrewer::brewer.pal(3, "Set2")[c(2, 3)]
+  names(cols) <- c("0.1", "0.9")
+  
+  g <- ggplot(p, aes(x, est, ymin = lwr, ymax = upr, group = level,
+    fill = level)) +
+    geom_line(lwd = 1.5, aes(colour = level)) +
+    geom_ribbon(alpha = 0.3) +
+    ylim(0, 1) +
+    ggsidekick::theme_sleek() +
+    ylab("Proportion burned") +
+    xlab(xlab) +
+    labs(colour = paste("Quantile", int_lab), 
+      fill = paste("Quantile", int_lab)) +
+    scale_colour_manual(values = cols) +
+    scale_fill_manual(values = cols) +
+    coord_cartesian(expand = FALSE)
+  g
+}
+
+plot_interaction(out_q3[[1]], int_var = "qmd_laf", int_lab = "\nqmd_laf", 
+  xlab = vars$x[[1]])
+
+plot_interaction(out_q3[[2]], int_var = "redgraygreenstage_ba_p", 
+  int_lab = "\nRGGStg BA", xlab = vars$x[[2]])
+
+plot_interaction(out_q3[[3]], int_var = "ba_ha", int_lab = "\nBA", xlab = vars$x[[3]])
+plot_interaction(out_q3[[4]], int_var = "ba_ha", int_lab = "\nBA", xlab = vars$x[[4]])
+plot_interaction(out_q3[[5]], int_var = "ba_ha", int_lab = "\nBA", xlab = vars$x[[5]])
+```
+
