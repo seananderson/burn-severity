@@ -163,8 +163,8 @@ make_predictions_oib <- function(d, f, model, Npred = 200L, use_new_data = TRUE,
 
   mm_pred <- as.matrix(model.matrix(f, data = d_pred))
 
-  pred_p <- plogis(mm_pred %*% t(e$bp_j))
-  pred_1 <- plogis(mm_pred %*% t(e$b1_j))
+  pred_p <- plogis(mm_pred %*% t(e$bp_j[, , drop = FALSE]))
+  pred_1 <- plogis(mm_pred %*% t(e$b1_j[, , drop = FALSE]))
   y_pred <- pred_1 + (1 - pred_1) * pred_p
   d_pred$y_pred <- y_pred
 
@@ -172,8 +172,8 @@ make_predictions_oib <- function(d, f, model, Npred = 200L, use_new_data = TRUE,
     xscaled = d_pred$xscaled,
     group = d_pred$group_id,
     est = apply(y_pred, 1, quantile, probs = 0.5),
-    lwr = apply(y_pred, 1, quantile, probs = 0.025),
-    upr = apply(y_pred, 1, quantile, probs = 0.975))
+    lwr = apply(y_pred, 1, quantile, probs = 0.05),
+    upr = apply(y_pred, 1, quantile, probs = 0.95))
 
   if (is.null(sd_x))
     pred_df$x <- d_pred$xscaled * 2 * sd(d$x) + mean(d$x)

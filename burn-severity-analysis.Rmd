@@ -278,9 +278,9 @@ out_q3 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without paralle
     file = "data/RockiesBurnSev_clean_20180124.csv",
     max_predictor = 2500)
   dd <- filter(d, !is.na(qmd_laf), !is.na(qmd_all))
-  m <- fit_model_oib(dd, sm_oib, predictors = x_vars, iter = 2000, chains = 4)
+  m <- fit_model_oib(dd, sm_oib, predictors = x_vars, iter = 4000, chains = 1)
   list(m = m, d = dd, x = x, y = y)
-}, .parallel = FALSE)
+}, .parallel = TRUE)
 ```
 
 Let's plot out the main effect coefficients and the interaction coefficients. This takes a little bit of data manipulation first. The dots are medians, the thick lines are 50% credible intervals, and the thin lines are 95% credible intervals.
@@ -353,7 +353,8 @@ do.call("grid.arrange", c(p_q3, ncol = nCol))
 ```
 
 ```{r}
-plot_interaction <- function(obj, int_var, int_lab, xlab, quant = c(0.1, 0.9)) {
+plot_interaction <- function(obj, int_var, int_lab, xlab, quant = c(0.1, 0.9),
+  cols = c("black", "red")) {
   
   newdata <- obj$d
   cn <- colnames(obj$m$stan_dat$Xp_ij)
@@ -367,21 +368,20 @@ plot_interaction <- function(obj, int_var, int_lab, xlab, quant = c(0.1, 0.9)) {
   
   newdata[,int_var] <- quantile(obj$d$ba_ha, quant[[1]])
   newdata$level <- as.character(quant[[1]])
-  newdata2 <- newdata
-  newdata2[,int_var] <- quantile(obj$d$ba_ha, quant[[2]])
-  newdata2$level <- as.character(quant[[2]])
+  newdata1 <- newdata
   
-  newdata <- bind_rows(newdata, newdata2)
+  for (i in seq(2, length(quant))) {
+    newdata2 <- newdata1
+    newdata2[, int_var] <- quantile(obj$d$ba_ha, quant[[i]])
+    newdata2$level <- as.character(quant[[i]])
+    newdata <- bind_rows(newdata, newdata2)
+  }
   
   p <- make_predictions_oib(d = newdata, f = obj$m$f, 
     model = obj$m$model, re = FALSE, use_new_data = FALSE)
   p$level <- newdata$level 
   
-  cols <- c(RColorBrewer::brewer.pal(5, "Blues")[[4]],
-    RColorBrewer::brewer.pal(5, "Greys")[[4]])
-  
-  # cols <- RColorBrewer::brewer.pal(3, "Set2")[c(2, 3)]
-  names(cols) <- c("0.1", "0.9")
+  names(cols) <- quant
   
   g <- ggplot(p, aes(x, est, ymin = lwr, ymax = upr, group = level,
     fill = level)) +
@@ -393,20 +393,33 @@ plot_interaction <- function(obj, int_var, int_lab, xlab, quant = c(0.1, 0.9)) {
     xlab(xlab) +
     labs(colour = paste("Quantile", int_lab), 
       fill = paste("Quantile", int_lab)) +
-    scale_colour_manual(values = cols) +
-    scale_fill_manual(values = cols) +
-    coord_cartesian(expand = FALSE)
+    scale_colour_manual(values = cols, guide = guide_legend(reverse = TRUE)) +
+    scale_fill_manual(values = cols, guide = guide_legend(reverse = TRUE)) +
+    coord_cartesian(expand = FALSE) +
+    theme(legend.justification = c(1, 0), legend.position = c(1, 0))
   g
 }
 
+# cols <- c(RColorBrewer::brewer.pal(5, "Blues")[[4]],
+#   RColorBrewer::brewer.pal(5, "Greys")[[4]])
+# cols <- RColorBrewer::brewer.pal(4, "YlGnBu")[-1]
+
+cols <- viridis::plasma(3, end = 0.85) %>% rev()
+quants <- c(0.05, 0.5, 0.95)
+
 plot_interaction(out_q3[[1]], int_var = "qmd_laf", int_lab = "\nqmd_laf", 
-  xlab = vars$x[[1]])
+  xlab = vars$x[[1]], col = cols, quant = quants)
 
 plot_interaction(out_q3[[2]], int_var = "redgraygreenstage_ba_p", 
-  int_lab = "\nRGGStg BA", xlab = vars$x[[2]])
+  int_lab = "\nRGGStg BA", xlab = vars$x[[2]], col = cols, quant = quants)
 
-plot_interaction(out_q3[[3]], int_var = "ba_ha", int_lab = "\nBA", xlab = vars$x[[3]])
-plot_interaction(out_q3[[4]], int_var = "ba_ha", int_lab = "\nBA", xlab = vars$x[[4]])
-plot_interaction(out_q3[[5]], int_var = "ba_ha", int_lab = "\nBA", xlab = vars$x[[5]])
+plot_interaction(out_q3[[3]], int_var = "ba_ha", int_lab = "\nBA", 
+  xlab = vars$x[[3]], col = cols, quant = quants)
+
+plot_interaction(out_q3[[4]], int_var = "ba_ha", int_lab = "\nBA", 
+  xlab = vars$x[[4]], col = cols, quant = quants)
+
+plot_interaction(out_q3[[5]], int_var = "ba_ha", int_lab = "\nBA", 
+  xlab = vars$x[[5]], col = cols, quant = quants)
 ```
 
