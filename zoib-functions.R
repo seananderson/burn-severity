@@ -330,3 +330,113 @@ make_roc <- function(d, predictions, return_plot = TRUE) {
   else
     return(a)
 }
+
+plot_zoib_coefs <- function(obj, oib = FALSE) {
+
+  m <- obj$m
+  x_name <- paste0(" ", obj$x) # " " for fct order
+
+  terms <- tibble(
+    name = colnames(m$stan_dat$Xp_ij),
+    num = as.character(seq_along(colnames(m$stan_dat$Xp_ij)))
+  )
+
+  models <- tibble(model = c("0", "1", "p"),
+    model_full = factor(
+      c("Pr(not 0)", "Pr(1)", "Proportion"),
+      levels =
+        c("Pr(not 0)", "Proportion", "Pr(1)")
+    ))
+  if (oib)
+    models <- filter(models, model != 0) # oib vs zoib
+
+  b <- broom::tidyMCMC(m$model, estimate.method = "median", conf.int = TRUE)
+  b_inner <- broom::tidyMCMC(m$model, estimate.method = "median", conf.int = TRUE,
+    conf.level = 0.5) %>%
+    rename(conf.low.25 = conf.low, conf.high.75 = conf.high) %>%
+    select(-estimate, -std.error)
+
+  b <- b %>% inner_join(b_inner, by = "term") %>%
+    filter(grepl("b[01p]+_j", term)) %>%
+    filter(!grepl("\\[1\\]", term)) %>%
+    mutate(num = gsub("b[01p]+_j\\[([0-9]+)\\]", "\\1", term)) %>%
+    mutate(model = gsub("b([01p]+)_j\\[([0-9]+)\\]", "\\1", term)) %>%
+    left_join(terms, by = "num") %>%
+    mutate(name = gsub("xscaled", x_name, name))
+
+  pal <- RColorBrewer::brewer.pal(3, "Set2")
+  # pal <- c(pal[4], "grey50", pal[5])
+
+  b %>%
+    mutate(estimate = ifelse(model == 0,     -estimate,     estimate)) %>%
+    mutate(conf.low = ifelse(model == 0,     -conf.low,     conf.low)) %>%
+    mutate(conf.high = ifelse(model == 0,    -conf.high,    conf.high)) %>%
+    mutate(conf.high.75 = ifelse(model == 0, -conf.high.75, conf.high.75)) %>%
+    mutate(conf.low.25 = ifelse(model == 0,  -conf.low.25,  conf.low.25)) %>%
+    mutate(interaction = grepl(":", name)) %>%
+    inner_join(models, by = "model") %>%
+    mutate(xvar = fct_relevel(name, x_name, after = Inf)) %>%
+    ggplot(aes(y = estimate, x = xvar,
+      colour = model_full, shape = interaction)) +
+    geom_hline(yintercept = 0, lty = 2, col = "grey55") +
+    geom_linerange(aes(ymin = conf.low.25, ymax = conf.high.75),
+      position = position_dodge(width = 0.4), size = 1.2) +
+    geom_pointrange(aes(ymin = conf.low, ymax = conf.high),
+      position = position_dodge(width = 0.4)) +
+    xlab("") +
+    ggsidekick::theme_sleek() +
+    coord_flip() +
+    scale_color_manual(values = pal, guide = guide_legend(reverse = TRUE)) +
+    scale_shape_manual(values = c(19, 21)) +
+    labs(colour = "Model", shape = "Interaction", y = "Coefficient value") +
+    ggtitle(obj$y) +
+    guides(shape = FALSE)
+}
+
+plot_interaction <- function(obj, int_var, int_lab, xlab, quant = c(0.1, 0.9),
+  cols = c("black", "red"), title = "") {
+
+  newdata <- obj$d
+  cn <- colnames(obj$m$stan_dat$Xp_ij)
+  cn <- cn[!grepl("\\(", cn)]
+  cn <- cn[!grepl("\\:", cn)]
+  cn <- cn[!grepl("xscaled", cn)]
+  newdata[,cn] <- 0
+  newdata[, "xscaled"] <- seq(min(newdata[, "xscaled"]),
+    max(newdata[, "xscaled"]),
+    length.out = nrow(newdata))
+
+  newdata[,int_var] <- quantile(obj$d[, int_var, drop = TRUE], quant[[1]])
+  newdata$level <- as.character(quant[[1]])
+  newdata1 <- newdata
+
+  for (i in seq(2, length(quant))) {
+    newdata2 <- newdata1
+    newdata2[, int_var] <- quantile(obj$d[, int_var, drop = TRUE], quant[[i]])
+    newdata2$level <- as.character(quant[[i]])
+    newdata <- bind_rows(newdata, newdata2)
+  }
+
+  p <- make_predictions_oib(d = newdata, f = obj$m$f,
+    model = obj$m$model, re = FALSE, use_new_data = FALSE)
+  p$level <- newdata$level
+
+  names(cols) <- quant
+
+  g <- ggplot(p, aes(x, est, ymin = lwr, ymax = upr, group = level,
+    fill = level)) +
+    geom_line(lwd = 1.5, aes(colour = level)) +
+    geom_ribbon(alpha = 0.3) +
+    ylim(0, 1) +
+    ggsidekick::theme_sleek() +
+    ylab("Proportion burned") +
+    xlab(xlab) +
+    labs(colour = paste("Quantile", int_lab),
+      fill = paste("Quantile", int_lab)) +
+    scale_colour_manual(values = cols, guide = guide_legend(reverse = TRUE)) +
+    scale_fill_manual(values = cols, guide = guide_legend(reverse = TRUE)) +
+    coord_cartesian(expand = FALSE) +
+    theme(legend.justification = c(1, 0), legend.position = c(1, 0)) +
+    ggtitle(title)
+  g
+}
