@@ -262,7 +262,7 @@ make_pred_plot <- function(pred_df, raw_data, re = TRUE) {
     geom_ribbon(alpha = 0.5, fill = "grey20") +
     ylim(0, 1) +
     ggsidekick::theme_sleek() +
-    ylab("Proportion burned") +
+    ylab("Proportion") +
     xlab("Predictor value") +
     labs(colour = "Fire location")
   if (re)
@@ -394,7 +394,7 @@ plot_zoib_coefs <- function(obj, oib = FALSE) {
 }
 
 plot_interaction <- function(obj, int_var, int_lab, xlab, quant = c(0.1, 0.9),
-  cols = c("black", "red"), title = "", type = c("zoib", "oib")) {
+  cols = c("black", "red"), title = "", type = c("zoib", "oib"), return_data = FALSE) {
 
   type <- match.arg(type)
 
@@ -431,20 +431,24 @@ plot_interaction <- function(obj, int_var, int_lab, xlab, quant = c(0.1, 0.9),
   p$level <- newdata$level
   names(cols) <- quant
 
-  g <- ggplot(p, aes(x, est, ymin = lwr, ymax = upr, group = level,
-    fill = level)) +
-    geom_line(lwd = 1.5, aes(colour = level)) +
-    geom_ribbon(alpha = 0.3) +
-    ylim(0, 1) +
-    ggsidekick::theme_sleek() +
-    ylab("Proportion burned") +
-    xlab(xlab) +
-    labs(colour = paste("Quantile", int_lab),
-      fill = paste("Quantile", int_lab)) +
-    scale_colour_manual(values = cols, guide = guide_legend(reverse = TRUE)) +
-    scale_fill_manual(values = cols, guide = guide_legend(reverse = TRUE)) +
-    coord_cartesian(expand = FALSE) +
-    theme(legend.justification = c(1, 0), legend.position = c(1, 0)) +
-    ggtitle(title)
-  g
+  if (!return_data) {
+    g <- ggplot(p, aes(x, est, ymin = lwr, ymax = upr, group = level,
+      fill = level)) +
+      geom_line(lwd = 1.5, aes(colour = level)) +
+      geom_ribbon(alpha = 0.3) +
+      ylim(0, 1) +
+      ggsidekick::theme_sleek() +
+      ylab("Proportion") +
+      xlab(xlab) +
+      labs(colour = paste("Quantile", int_lab),
+        fill = paste("Quantile", int_lab)) +
+      scale_colour_manual(values = cols, guide = guide_legend(reverse = TRUE)) +
+      scale_fill_manual(values = cols, guide = guide_legend(reverse = TRUE)) +
+      coord_cartesian(expand = FALSE) +
+      theme(legend.justification = c(1, 0), legend.position = c(1, 0)) +
+      ggtitle(title)
+    return(g)
+  } else {
+    return(as_tibble(p))
+  }
 }

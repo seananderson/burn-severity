@@ -453,7 +453,7 @@ All:
 
 ```{r}
 inter_vars <- c("qmd_laf", "qmd_all", "ba_ha", "stems_ha", "redgraygreenstage_ba_p")
-inter_vars_long <- c("QMD (live at fire)", "QMD", "Stand basal area", "Stand density", 
+inter_vars_long <- c("QMD\n(live at fire)", "QMD", "Stand\nbasal area", "Stand density", 
   "Pre-fire beetle\noutbreak severity")
 vars_i <- seq_along(inter_vars)
 response_j <- seq_along(out_q3)
@@ -463,13 +463,37 @@ for (j in response_j) {
   for (i in vars_i) {
     k <- k + 1
     q3_inter_plots[[k]] <- 
-      plot_interaction(out_q3[[j]], int_var = inter_vars[i], int_lab = paste0("\n", inter_vars_long[i]), 
+      plot_interaction(out_q3[[j]], int_var = inter_vars[i], 
+        int_lab = paste0("\n", inter_vars_long[i]), 
       xlab = gsub("_BL", "", "RdNBR_BL"), col = cols, quant = quants, 
         title = var_names$new.names[var_names$y == vars$y[[j]]], 
-        type = "oib")
+        type = "oib", return_data = TRUE)
+    q3_inter_plots[[k]]$interaction <- inter_vars_long[i]
+    q3_inter_plots[[k]]$response <- var_names$new.names[var_names$y == vars$y[[j]]]
   }
 }
-pdf("figs/q3-interaction-ribbons.pdf", width = 13, height = 10)
-do.call("grid.arrange", c(q3_inter_plots, nrow = length(response_j)))
+q3_inter_plots_df <- bind_rows(q3_inter_plots)
+q3_inter_plots_df$level <- as.factor(q3_inter_plots_df$level)
+g <- ggplot(q3_inter_plots_df, aes(x, est, ymin = lwr, ymax = upr, group = level,
+  fill = level)) +
+  geom_line(lwd = 1.2, aes(colour = level)) +
+  geom_ribbon(alpha = 0.25) +
+  facet_grid(interaction~response) +
+  ylim(0, 1) +
+  ggsidekick::theme_sleek() +
+  ylab("Proportion") +
+  xlab("RdNBR_BL") +
+  labs(colour = "Quantile",
+    fill = "Quantile") +
+  scale_colour_manual(values = cols, guide = guide_legend(reverse = TRUE)) +
+  scale_fill_manual(values = cols, guide = guide_legend(reverse = TRUE)) +
+  scale_y_continuous(breaks = c(seq(0, 0.8, 0.2))) +
+  coord_cartesian(expand = FALSE) +
+  theme(legend.justification = c(1, 0), legend.position = c(0.2, 0.8), 
+    panel.spacing = unit(-0.05, "lines")) +
+  xlab("RdNBR")
+
+pdf("figs/q3-interaction-ribbons.pdf", width = 8, height = 5.5)
+print(g)
 dev.off()
 ```
