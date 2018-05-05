@@ -302,8 +302,8 @@ make_predictions_dat <- function(model, d, f) {
   apply(y_pred, 1, median)
 }
 
-make_roc <- function(d, predictions, return_plot = TRUE) {
-  thresh <- seq(0.2, 0.8, length.out = 8)
+make_roc <- function(d, predictions, return_plot = TRUE,
+  thresh = seq(0.1, 0.9, length.out = 20)) {
   auc_thresh <- function(thresh = 0.5) {
     d$outcome <- ifelse(d$y > thresh, 1, 0)
     fastAUC(class = d$outcome, probs = predictions)
@@ -394,7 +394,9 @@ plot_zoib_coefs <- function(obj, oib = FALSE) {
 }
 
 plot_interaction <- function(obj, int_var, int_lab, xlab, quant = c(0.1, 0.9),
-  cols = c("black", "red"), title = "") {
+  cols = c("black", "red"), title = "", type = c("zoib", "oib")) {
+
+  type <- match.arg(type)
 
   newdata <- obj$d
   cn <- colnames(obj$m$stan_dat$Xp_ij)
@@ -417,10 +419,16 @@ plot_interaction <- function(obj, int_var, int_lab, xlab, quant = c(0.1, 0.9),
     newdata <- bind_rows(newdata, newdata2)
   }
 
-  p <- make_predictions_oib(d = newdata, f = obj$m$f,
-    model = obj$m$model, re = FALSE, use_new_data = FALSE)
-  p$level <- newdata$level
+  if (type == "oib") {
+    p <- make_predictions_oib(d = newdata, f = obj$m$f,
+      model = obj$m$model, re = FALSE, use_new_data = FALSE)
+  }
+  if (type == "zoib") {
+    p <- make_predictions(d = newdata, f = obj$m$f,
+      model = obj$m$model, re = FALSE, use_new_data = FALSE)
+  }
 
+  p$level <- newdata$level
   names(cols) <- quant
 
   g <- ggplot(p, aes(x, est, ymin = lwr, ymax = upr, group = level,

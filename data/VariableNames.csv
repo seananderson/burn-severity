@@ -1,0 +1,15 @@
+old names,new names
+BOLESCORCH,Bole scorch
+CHARCOV,Charred surface cover
+CHARHT_percMax,Char height
+Firemort.BA.p,Basal area killed by fire
+Firemort.trees.p,Trees killed by fire
+slope,slope
+pre_NBR,pre-fire NBR
+lat,latitude
+HeatLoad,Head load index
+stems_ha,stand density 
+RedGrayGreenStage.BA.p,pre-fire beetle outbreak severity
+QMD_LAF,QMD (live at fire)
+QMD_all,QMD
+ba_ha,stand basal area
