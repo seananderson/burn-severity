@@ -8,3 +8,9 @@
 *files
 *.html
 figs-knitr
+*.fls
+*.log
+*.gz
+*.out
+*.fdb_latexmk
+*.aux

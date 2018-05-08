@@ -256,7 +256,7 @@ make_predictions <- function(d, f, model, Npred = 200L, use_new_data = TRUE,
 
 make_pred_plot <- function(pred_df, raw_data, re = TRUE) {
   g <- ggplot(pred_df, aes(x, est, ymin = lwr, ymax = upr)) +
-    geom_point(data = d, aes(x, y, colour = group),
+    geom_point(data = raw_data, aes(x, y, colour = group),
       inherit.aes = FALSE, alpha = 0.6) +
     geom_line(lwd = 1.5) +
     geom_ribbon(alpha = 0.5, fill = "grey20") +
@@ -267,7 +267,7 @@ make_pred_plot <- function(pred_df, raw_data, re = TRUE) {
     labs(colour = "Fire location")
   if (re)
     g <- g + geom_line(aes(y = est_re, group = as.factor(group)),
-      col = "grey50", lty = 1, lwd = 0.2)
+      col = "grey35", lty = 1, lwd = 0.4, alpha = 0.95)
   g
 }
 
@@ -322,8 +322,8 @@ make_roc <- function(d, predictions, return_plot = TRUE,
   g <- ggplot(r, aes(fpr, tpr)) +
     geom_line(aes(group = as.factor(thresh), colour = thresh), alpha = 0.9) +
     scale_color_gradient2(mid = "grey75", midpoint = 0.5) +
-    geom_text(data = data.frame(fpr = 0.75, tpr = 0.1), label = lab) +
-    geom_text(data = data.frame(fpr = 0.75, tpr = 0.15), label = lab1) +
+    geom_text(data = data.frame(fpr = 0.75, tpr = 0.1), label = lab, col = "grey30") +
+    geom_text(data = data.frame(fpr = 0.75, tpr = 0.15), label = lab1, col = "grey30") +
     ggsidekick::theme_sleek()
   if (return_plot)
     return(g)

@@ -38,8 +38,6 @@ Fit all satellite predictors to all field measure responses:
 x_vars <- c(
   "dNBR",
   "dNBR_BL",
-  "dNBR_Offset",
-  "dNBR_Offset_BL",
   "RdNBR",
   "RdNBR_BL",
   "RBR",
@@ -61,6 +59,30 @@ out_q1 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without paralle
 }, .parallel = TRUE)
 ```
 
+Basic plots for supplement:
+
+```{r}
+var_names <- read.csv("data/VariableNames.csv", stringsAsFactors = FALSE, strip.white = TRUE) %>% 
+  rename(y = old.names)
+```
+
+
+```{r}
+raw_plots_q1 <- 
+  plyr::llply(out_q1, function(x) {
+    p <- make_predictions(d = x$d, f = x$m$f, model = x$m$model)
+    g <- make_pred_plot(pred_df = p, raw_data = x$d) +
+      xlab(x$x) +
+      ggtitle(var_names$new.names[var_names$y == x$y]) +
+      guides(colour = FALSE)
+  }, .parallel = TRUE)
+library(gridExtra)
+nRow <- length(x_vars)
+pdf("figs/raw-plots-q1.pdf", width = 13, height = 10)
+do.call("grid.arrange", c(raw_plots_q1, nrow = nRow, as.table = FALSE))
+dev.off()
+```
+
 Get AUC values:
 
 ```{r aucs_q1, warning=FALSE, cache=TRUE, dependson='fit-all-q1'}
@@ -74,7 +96,7 @@ get_loo <- function(x) {
   out$estimate["looic", "Estimate"]
 }
 
-thresholds <- seq(0.2, 0.8, length.out = 5)
+thresholds <- seq(0.05, 0.95, length.out = 5)
 
 aucs_q1 <- plyr::ldply(out_q1, function(x) {
   predictions <- make_predictions_dat(model = x$m$model, f = x$m$f, d = x$d)
@@ -92,8 +114,6 @@ aucs_q1 <- plyr::ldply(out_q1, function(x) {
 Plot comparisons:
 
 ```{r}
-var_names <- read.csv("data/VariableNames.csv", stringsAsFactors = FALSE, strip.white = TRUE) %>% 
-  rename(y = old.names)
 aucs_q1_summ <- select(aucs_q1, -auc, -thresh) %>% unique()
 g <- ggplot(aucs_q1_summ, aes(y, x)) +
   viridis::scale_fill_viridis() +
@@ -132,6 +152,22 @@ aucs_q1_summ %>% group_by(y) %>%
   coord_cartesian(expand = FALSE)
 ```
 
+E.g. ROC:
+
+```{r}
+x <- out_q1[[20]]
+a <- make_predictions_dat(x$m$model, f = x$m$f, d = x$d)
+make_roc(x$d, a, thresh = thresholds) + 
+  ggtitle(paste(var_names$new.names[var_names$y == x$y], "/", x$x)) +
+  labs(colour = "Threshold") +
+  xlab("False positive rate") +
+  ylab("True positive rate") +
+  coord_equal() +
+  coord_cartesian(expand = FALSE) +
+  geom_abline(intercept = 0, slope = 1, lty = 2, col = "grey50")
+ggsave("figs/roc-example.pdf", width = 5.5, height = 5)
+```
+
 ## Figure 2:
 
 ```{r}
@@ -139,7 +175,7 @@ aucs_q1 %>% filter(x %in% c("dNBR_BL", "RBR_BL", "RdNBR_BL")) %>%
   mutate(x = gsub("_BL", "", x)) %>% 
   left_join(var_names, by = "y") %>% 
   ggplot(aes(thresh, auc, colour = x)) +
-  geom_line() + 
+  geom_line(lwd = 1) + 
   facet_wrap(~new.names, scales = "fixed", nrow = 1) +
   scale_color_brewer(palette = "Dark2") +
   # viridis::scale_colour_viridis(discrete = TRUE) +
@@ -148,8 +184,9 @@ aucs_q1 %>% filter(x %in% c("dNBR_BL", "RBR_BL", "RdNBR_BL")) %>%
   labs(colour = "Burn severity index") +
   xlab("Proportion burned threshold") + ylab("AUC") + 
   theme(legend.position = c(0.905, 0.23)) +
-  scale_y_continuous(breaks = seq(0.8, 0.95, 0.025)) +
-  theme(strip.text = element_text(size = rel(0.87)))
+  scale_y_continuous(breaks = seq(0.8, 0.95, 0.05)) +
+  theme(strip.text = element_text(size = rel(0.87))) +
+  coord_cartesian(xlim = c(0, 0.99), expand = 0)
 ggsave("figs/fig2.pdf", width = 8.2, height = 2.5)
 ```
 
@@ -232,17 +269,17 @@ aucs_cv %>% filter(x %in% c("dNBR_BL", "RBR_BL", "RdNBR_BL")) %>%
   mutate(x = gsub("_BL", "", x)) %>% 
   left_join(var_names, by = "y") %>% 
   ggplot(aes(thresh, auc, colour = x)) +
-  geom_line() + 
+  geom_line(lwd = 1) + 
   facet_wrap(~new.names, scales = "fixed", nrow = 1) +
   scale_color_brewer(palette = "Dark2") +
   # viridis::scale_colour_viridis(discrete = TRUE) +
   ggsidekick::theme_sleek() +
-  theme_sleek() +
   labs(colour = "Burn severity index") +
   xlab("Proportion burned threshold") + ylab("AUC") + 
   theme(legend.position = c(0.905, 0.23)) +
-  scale_y_continuous(breaks = seq(0.8, 0.95, 0.025)) +
-  theme(strip.text = element_text(size = rel(0.87)))
+  scale_y_continuous(breaks = seq(0.8, 0.95, 0.05)) +
+  theme(strip.text = element_text(size = rel(0.87))) +
+  coord_cartesian(xlim = c(0, 0.99), expand = 0)
 ggsave("figs/fig2-cv.pdf", width = 8.2, height = 2.5)
 ```
 
@@ -285,6 +322,10 @@ library(gridExtra)
 n <- length(p_q2)
 nCol <- floor(sqrt(n))
 do.call("grid.arrange", c(p_q2, ncol = nCol))
+
+pdf("figs/q2-coefs.pdf", width = 9, height = 8)
+do.call("grid.arrange", c(p_q2, ncol = nCol))
+dev.off()
 ```
 
 Examples:
@@ -336,20 +377,83 @@ do.call("grid.arrange", c(q2_inter_plots, nrow = length(response_j)))
 dev.off()
 ```
 
+```{r}
+cols <- viridis::plasma(3, end = 0.85) %>% rev()
+quants <- c(0.05, 0.5, 0.95)
+
+inter_vars <- c("lat", "heatload", "slope", "prenbr")
+inter_vars_long <- c("Latitude", "Heat load index", "Slope", "pe-fire NBR")
+vars_i <- seq_along(inter_vars)
+response_j <- seq_along(out_q2)
+q2_inter_plots <- list()
+k <- 0
+for (j in response_j) {
+  for (i in vars_i) {
+    k <- k + 1
+    q2_inter_plots[[k]] <- 
+      plot_interaction(out_q2[[j]], int_var = inter_vars[i], 
+        int_lab = paste0("\n", inter_vars_long[i]), 
+      xlab = gsub("_BL", "", "RdNBR_BL"), col = cols, quant = quants, 
+        title = var_names$new.names[var_names$y == vars$y[[j]]], 
+        type = "zoib", return_data = TRUE)
+    q2_inter_plots[[k]]$interaction <- inter_vars_long[i]
+    q2_inter_plots[[k]]$response <- 
+      var_names$new.names[var_names$y == vars$y[[j]]]
+  }
+}
+q2_inter_plots_df <- bind_rows(q2_inter_plots)
+q2_inter_plots_df$level <- as.factor(q2_inter_plots_df$level)
+g <- ggplot(q2_inter_plots_df, aes(x, est, ymin = lwr, ymax = upr, group = level,
+  fill = level)) +
+  geom_line(lwd = 1.2, aes(colour = level)) +
+  geom_ribbon(alpha = 0.25) +
+  facet_grid(interaction~response) +
+  ggsidekick::theme_sleek() +
+  ylab("Proportion") +
+  xlab("RdNBR_BL") +
+  labs(colour = "Quantile",
+    fill = "Quantile") +
+  scale_colour_manual(values = cols, guide = guide_legend(reverse = TRUE)) +
+  scale_fill_manual(values = cols, guide = guide_legend(reverse = TRUE)) +
+  scale_y_continuous(breaks = c(seq(0, 0.8, 0.2)), limits = c(0, 1)) +
+  coord_cartesian(expand = FALSE) +
+  theme(legend.justification = c(1, 0), legend.position = c(0.2, 0.8), 
+    panel.spacing = unit(-0.05, "lines"), legend.title = element_text(size = rel(0.8))) +
+  xlab("RdNBR")
+
+pdf("figs/q2-interaction-ribbons.pdf", width = 8, height = 5.5)
+print(g)
+dev.off()
+```
 
 Get AUC values:
 
 ```{r, warning=FALSE}
+# aucs_q2 <- plyr::ldply(out_q2, function(x) {
+#   predictions <- make_predictions_dat(model = x$m$model, f = x$m$f, d = x$d)
+#   aucs_i <- make_roc(d = x$d, predictions = predictions, return_plot = FALSE)
+#   looic <- tryCatch({get_loo(x$m$model)}, error = function(e) NA )  
+#   b <- broom::tidyMCMC(x$m$model, rhat = TRUE, ess = TRUE)
+#   data.frame(x = x$x, y = x$y,
+#     auc_mean = mean(aucs_i), auc_lwr = min(aucs_i), auc_upr = max(aucs_i),
+#     looic = looic, ess = min(b$ess), rhat = max(b$rhat), stringsAsFactors = FALSE)
+# }, .parallel = TRUE)
+```
+
+```{r}
 aucs_q2 <- plyr::ldply(out_q2, function(x) {
   predictions <- make_predictions_dat(model = x$m$model, f = x$m$f, d = x$d)
-  aucs_i <- make_roc(d = x$d, predictions = predictions, return_plot = FALSE)
+  aucs_i <- make_roc(d = x$d, predictions = predictions, return_plot = FALSE, thresh = thresholds)
   looic <- tryCatch({get_loo(x$m$model)}, error = function(e) NA )  
   b <- broom::tidyMCMC(x$m$model, rhat = TRUE, ess = TRUE)
   data.frame(x = x$x, y = x$y,
+    auc = aucs_i,
+    thresh = thresholds,
     auc_mean = mean(aucs_i), auc_lwr = min(aucs_i), auc_upr = max(aucs_i),
     looic = looic, ess = min(b$ess), rhat = max(b$rhat), stringsAsFactors = FALSE)
 }, .parallel = TRUE)
 ```
+
 
 Check LOOIC:
 
@@ -361,21 +465,21 @@ aucs_q2 %>% arrange(x, y)
 A possible type of plot looking at the increase in the range of AUC. Might be better done for a cross validation set. This is currently done on the full data set. Alternatively could do something with LOOIC (which is analogous to AIC).
 
 ```{r}
-aucs_q1$q <- "q1"
-aucs_q2$q <- "q2"
-temp <- bind_rows(semi_join(aucs_q1, select(aucs_q2, x, y)), aucs_q2) %>% 
-  filter(rhat < 1.2, ess > 15) %>% # TODO increase!
-  mutate(y = as.factor(y)) %>% 
-  mutate(y_val = ifelse(q == "q1", as.numeric(y) - 0.1, as.numeric(y) + 0.1))
-labs <- select(temp, y) %>% mutate(y_val = as.numeric(y)) %>% unique() %>% 
-  arrange(y_val)
-ggplot(temp, aes(y_val, auc_mean, colour = q)) + 
-  geom_point(position = position_dodge(width = 0.1)) +
-  coord_flip() +
-  geom_segment(aes(y = auc_lwr, yend = auc_upr, x = y_val, xend = y_val)) +
-  scale_x_continuous(breaks = labs$y_val, labels = labs$y) +
-  xlab("") + ylab("AUC") +
-  theme_sleek()
+# aucs_q1$q <- "q1"
+# aucs_q2$q <- "q2"
+# temp <- bind_rows(semi_join(aucs_q1, select(aucs_q2, x, y)), aucs_q2) %>% 
+#   filter(rhat < 1.2, ess > 15) %>% # TODO increase!
+#   mutate(y = as.factor(y)) %>% 
+#   mutate(y_val = ifelse(q == "q1", as.numeric(y) - 0.1, as.numeric(y) + 0.1))
+# labs <- select(temp, y) %>% mutate(y_val = as.numeric(y)) %>% unique() %>% 
+#   arrange(y_val)
+# ggplot(temp, aes(y_val, auc_mean, colour = q)) + 
+#   geom_point(position = position_dodge(width = 0.1)) +
+#   coord_flip() +
+#   geom_segment(aes(y = auc_lwr, yend = auc_upr, x = y_val, xend = y_val)) +
+#   scale_x_continuous(breaks = labs$y_val, labels = labs$y) +
+#   xlab("") + ylab("AUC") +
+#   theme_sleek()
 ```
 
 # Q3 How are the "best" models affected by important characteristics of stand structure, that are NOT easily attainable?
@@ -425,6 +529,10 @@ library(gridExtra)
 n <- length(p_q3)
 nCol <- floor(sqrt(n))
 do.call("grid.arrange", c(p_q3, ncol = nCol))
+
+pdf("figs/q3-coefs.pdf", width = 10, height = 8)
+do.call("grid.arrange", c(p_q3, ncol = nCol))
+dev.off()
 ```
 
 Examples:
@@ -474,12 +582,15 @@ for (j in response_j) {
 }
 q3_inter_plots_df <- bind_rows(q3_inter_plots)
 q3_inter_plots_df$level <- as.factor(q3_inter_plots_df$level)
+
+dd <- get_dat(response = "Firemort.BA.p", 
+  main_predictor = "RdNBR_BL", file = file)
+xlim_range <- range(dd$x)
 g <- ggplot(q3_inter_plots_df, aes(x, est, ymin = lwr, ymax = upr, group = level,
   fill = level)) +
   geom_line(lwd = 1.2, aes(colour = level)) +
   geom_ribbon(alpha = 0.25) +
   facet_grid(interaction~response) +
-  ylim(0, 1) +
   ggsidekick::theme_sleek() +
   ylab("Proportion") +
   xlab("RdNBR_BL") +
@@ -487,13 +598,41 @@ g <- ggplot(q3_inter_plots_df, aes(x, est, ymin = lwr, ymax = upr, group = level
     fill = "Quantile") +
   scale_colour_manual(values = cols, guide = guide_legend(reverse = TRUE)) +
   scale_fill_manual(values = cols, guide = guide_legend(reverse = TRUE)) +
-  scale_y_continuous(breaks = c(seq(0, 0.8, 0.2))) +
+  scale_y_continuous(breaks = c(seq(0, 0.8, 0.2)), limits = c(0, 1)) +
   coord_cartesian(expand = FALSE) +
   theme(legend.justification = c(1, 0), legend.position = c(0.2, 0.8), 
-    panel.spacing = unit(-0.05, "lines")) +
-  xlab("RdNBR")
+    panel.spacing = unit(-0.05, "lines"), legend.title = element_text(size = rel(0.8))) +
+  xlab("RdNBR") +
+  xlim(xlim_range)
 
 pdf("figs/q3-interaction-ribbons.pdf", width = 8, height = 5.5)
 print(g)
 dev.off()
 ```
+
+# Compare AUC across Q1, Q2, Q3
+
+```{r}
+aucs_q1$Q <- "Q1"
+aucs_q2$Q <- "Q2"
+aucs <- bind_rows(aucs_q1, aucs_q2) %>% 
+  filter(x == "RdNBR_BL")
+  
+aucs %>%
+  mutate(x = gsub("_BL", "", x)) %>% 
+  left_join(var_names, by = "y") %>% 
+  ggplot(aes(thresh, auc, colour = Q)) +
+  geom_line(lwd = 1.0) + 
+  facet_wrap(~new.names, scales = "fixed", nrow = 1) +
+  scale_color_brewer(palette = "Set1") +
+  ggsidekick::theme_sleek() +
+  theme_sleek() +
+  labs(colour = "Covariates") +
+  xlab("Proportion burned threshold") + ylab("AUC") + 
+  theme(legend.position = c(0.905, 0.23)) +
+  scale_y_continuous(breaks = seq(0.8, 0.95, 0.05)) +
+  theme(strip.text = element_text(size = rel(0.87))) +
+  coord_cartesian(xlim = c(0, 0.99), expand = 0)
+ggsave("figs/auc-q1-vs-q2.pdf", width = 8.2, height = 2.5)
+```
+
