@@ -14,3 +14,4 @@ figs-knitr
 *.out
 *.fdb_latexmk
 *.aux
+*.png

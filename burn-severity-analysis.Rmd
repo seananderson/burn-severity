@@ -24,7 +24,8 @@ library("rstan")
 library("doParallel")
 library("ggsidekick") # devtools::install_github("seananderson/ggsidekick")
 rstan_options(auto_write = TRUE)
-options(mc.cores = parallel::detectCores())
+# options(mc.cores = parallel::detectCores())
+options(mc.cores = 1)
 sm <- stan_model("zoib1re.stan")
 registerDoParallel(cores = parallel::detectCores())
 file <- file.path("data", "RockiesBurnSev_clean_20180216.csv")
@@ -54,7 +55,8 @@ vars <- expand.grid(x = x_vars, y = y_vars, stringsAsFactors = FALSE)
 out_q1 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without parallel
   d <- get_dat(!!quo_name(y), !!quo_name(x),
     file = file, max_predictor = 2500)
-  m <- fit_model(d, model = sm, predictors = "xscaled", iter = 1000L, chains = 1L)
+  m <- fit_model(d, model = sm, predictors = "xscaled", iter = 1000L, 
+    chains = 4L)
   list(m = m, d = d, x = x, y = y)
 }, .parallel = TRUE)
 ```
@@ -64,23 +66,29 @@ Basic plots for supplement:
 ```{r}
 var_names <- read.csv("data/VariableNames.csv", stringsAsFactors = FALSE, strip.white = TRUE) %>% 
   rename(y = old.names)
+response_order <- c(
+  "Basal area killed by fire", 
+  "Trees killed by fire",
+  "Bole scorch", 
+  "Char height", 
+  "Charred surface cover"
+)
 ```
 
-
 ```{r}
-raw_plots_q1 <- 
-  plyr::llply(out_q1, function(x) {
-    p <- make_predictions(d = x$d, f = x$m$f, model = x$m$model)
-    g <- make_pred_plot(pred_df = p, raw_data = x$d) +
-      xlab(x$x) +
-      ggtitle(var_names$new.names[var_names$y == x$y]) +
-      guides(colour = FALSE)
-  }, .parallel = TRUE)
-library(gridExtra)
-nRow <- length(x_vars)
-pdf("figs/raw-plots-q1.pdf", width = 13, height = 10)
-do.call("grid.arrange", c(raw_plots_q1, nrow = nRow, as.table = FALSE))
-dev.off()
+# raw_plots_q1 <- 
+#   plyr::llply(out_q1, function(x) {
+#     p <- make_predictions(d = x$d, f = x$m$f, model = x$m$model)
+#     g <- make_pred_plot(pred_df = p, raw_data = x$d) +
+#       xlab(x$x) +
+#       ggtitle(var_names$new.names[var_names$y == x$y]) +
+#       guides(colour = FALSE)
+#   }, .parallel = TRUE)
+# library(gridExtra)
+# nRow <- length(x_vars)
+# pdf("figs/raw-plots-q1.pdf", width = 13, height = 10)
+# do.call("grid.arrange", c(raw_plots_q1, nrow = nRow, as.table = FALSE))
+# dev.off()
 ```
 
 Get AUC values:
@@ -165,29 +173,118 @@ make_roc(x$d, a, thresh = thresholds) +
   coord_equal() +
   coord_cartesian(expand = FALSE) +
   geom_abline(intercept = 0, slope = 1, lty = 2, col = "grey50")
-ggsave("figs/roc-example.pdf", width = 5.5, height = 5)
+ggsave("figs/roc-example.png", width = 5.5, height = 5, dpi = 200)
 ```
 
 ## Figure 2:
 
 ```{r}
-aucs_q1 %>% filter(x %in% c("dNBR_BL", "RBR_BL", "RdNBR_BL")) %>%
+lets <- data.frame(new.names = response_order,
+  panel = 
+    paste0("(", letters[5 + seq_along(response_order)], ")"),
+  stringsAsFactors = FALSE)
+
+lower_panel <- 
+  aucs_q1 %>% filter(x %in% c("dNBR_BL", "RBR_BL", "RdNBR_BL")) %>%
   mutate(x = gsub("_BL", "", x)) %>% 
-  left_join(var_names, by = "y") %>% 
+  left_join(var_names, by = "y") %>%
   ggplot(aes(thresh, auc, colour = x)) +
   geom_line(lwd = 1) + 
-  facet_wrap(~new.names, scales = "fixed", nrow = 1) +
+  facet_wrap(~factor(new.names, levels = response_order), 
+    scales = "fixed", nrow = 1) +
   scale_color_brewer(palette = "Dark2") +
   # viridis::scale_colour_viridis(discrete = TRUE) +
   ggsidekick::theme_sleek() +
   theme_sleek() +
   labs(colour = "Burn severity index") +
-  xlab("Proportion burned threshold") + ylab("AUC") + 
-  theme(legend.position = c(0.905, 0.23)) +
+  xlab("Proportion threshold") + ylab("AUC") + 
+  theme(legend.position = c(0.093, 0.26)) +
   scale_y_continuous(breaks = seq(0.8, 0.95, 0.05)) +
   theme(strip.text = element_text(size = rel(0.87))) +
-  coord_cartesian(xlim = c(0, 0.99), expand = 0)
-ggsave("figs/fig2.pdf", width = 8.2, height = 2.5)
+  coord_cartesian(xlim = c(0, 0.99), expand = 0, ylim = c(0.80, 0.98)) +
+  geom_text(data = lets, aes(label = panel), x = 0.1, y = 0.968,
+    inherit.aes = FALSE, col = "grey30")
+
+dat_q1_pred <- 
+  plyr::ldply(out_q1, function(x) {
+    p <- make_predictions(d = x$d, f = x$m$f, model = x$m$model)
+    p$response <- var_names$new.names[var_names$y == x$y]
+    p$predictor <- x$x
+    p
+  }, .parallel = TRUE)
+
+dat_q1_raw <- 
+  plyr::ldply(out_q1, function(x) {
+    x$d$response <- var_names$new.names[var_names$y == x$y]
+    x$d$predictor <- x$x
+    x$d
+  }, .parallel = TRUE)
+
+lets <- data.frame(response = response_order,
+  panel = 
+    paste0("(", letters[seq_along(response_order)], ")"),
+  stringsAsFactors = FALSE)
+
+upper_panel <- ggplot(
+  filter(dat_q1_pred, predictor == "RdNBR_BL"), 
+  aes(x, est, ymin = lwr, ymax = upr)) +
+    geom_point(data = filter(dat_q1_raw, predictor == "RdNBR_BL"), 
+      aes(x, y, group = group), colour = "grey30",
+      inherit.aes = FALSE, alpha = 0.2, size = 0.7) +
+    geom_line(aes(y = est_re, group = as.factor(group)),
+    col = "grey35", lty = 1, lwd = 0.4, alpha = 0.7) +
+    geom_line(lwd = 1.5, 
+      colour = RColorBrewer::brewer.pal(3, "Dark2")[[3]]) +
+    geom_ribbon(alpha = 0.3, 
+      fill = RColorBrewer::brewer.pal(3, "Dark2")[[3]]) +
+    ylim(0, 1) +
+    ggsidekick::theme_sleek() +
+    ylab("Proportion") +
+    xlab("Predictor value") +
+    labs(colour = "Fire location") +
+  facet_wrap(~factor(response, levels = response_order), nrow = 1) +
+  coord_cartesian(expand = FALSE, ylim = c(-0.03, 1.03)) +
+  theme(strip.text = element_text(size = rel(0.87))) +
+  geom_text(data = lets, aes(label = panel), x = -100, y = 0.96,
+    inherit.aes = FALSE, col = "grey30")
+
+cowplot::plot_grid(upper_panel, lower_panel, nrow = 2)
+ggsave("figs/fig2.png", width = 8.2, height = 4.5, dpi = 200)
+```
+
+Fig S1:
+
+```{r}
+dat_q1_pred2 <- mutate(dat_q1_pred, response = gsub("Basal area killed by fire", "Basal area\\\nkilled by fire", response))
+dat_q1_raw2 <- mutate(dat_q1_raw, response = gsub("Basal area killed by fire", "Basal area\\\nkilled by fire", response))
+
+dat_q1_pred2 <- mutate(dat_q1_pred2, response = gsub("Charred surface cover", "Charred\\\nsurface cover", response))
+dat_q1_raw2 <- mutate(dat_q1_raw2, response = gsub("Charred surface cover", "Charred\\\nsurface cover", response))
+
+response_order2 <- gsub("Basal area killed by fire", 
+  "Basal area\\\nkilled by fire", response_order)
+response_order2 <- gsub("Charred surface cover", "Charred\\\nsurface cover",
+  response_order2)
+
+ggplot(
+  filter(dat_q1_pred2),
+  aes(x, est, ymin = lwr, ymax = upr)) +
+  geom_point(data = filter(dat_q1_raw2), 
+    aes(x, y, group = group), colour = "grey30",
+    inherit.aes = FALSE, alpha = 0.15, size = 0.7) +
+  geom_line(aes(y = est_re, group = as.factor(group)),
+    col = "grey35", lty = 1, lwd = 0.4, alpha = 0.7) +
+  geom_line(lwd = 1.5, colour = "red") +
+  geom_ribbon(alpha = 0.2, fill = "red") +
+  ylim(0, 1) +
+  ggsidekick::theme_sleek() +
+  ylab("Proportion") +
+  xlab("Predictor value") +
+  labs(colour = "Fire location") +
+  facet_grid(factor(response, levels = response_order2)~predictor, 
+    scales = "free_x")
+
+ggsave("figs/figS1.png", width = 9.5, height = 6, dpi = 200)
 ```
 
 Cross-val. Go-go-gadget 8 cores:
@@ -311,7 +408,7 @@ out_q2 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without paralle
   d <- d[!is.na(d$prenbr), , drop = FALSE] # 1 row TODO
   m <- fit_model(d, model = sm,
     predictors = c("xscaled", extra_x_vars),
-    iter = 3000L, chains = 1L)
+    iter = 1000L, chains = 4L)
   list(m = m, d = d, x = x, y = y)
 }, .parallel = TRUE)
 ```
@@ -323,7 +420,7 @@ n <- length(p_q2)
 nCol <- floor(sqrt(n))
 do.call("grid.arrange", c(p_q2, ncol = nCol))
 
-pdf("figs/q2-coefs.pdf", width = 9, height = 8)
+png("figs/q2-coefs.png", width = 9, height = 8, units = "in", res = 200)
 do.call("grid.arrange", c(p_q2, ncol = nCol))
 dev.off()
 ```
@@ -331,23 +428,23 @@ dev.off()
 Examples:
 
 ```{r}
-plot_interaction(out_q2[[1]], int_var = "lat", int_lab = "\nlatitude",
-  xlab = vars$x[[1]], col = cols, quant = quants, title = vars$y[[1]], type = "zoib")
-
-plot_interaction(out_q2[[1]], int_var = "slope", int_lab = "\nslope",
-  xlab = vars$x[[1]], col = cols, quant = quants, title = vars$y[[1]], type = "zoib")
-
-plot_interaction(out_q2[[2]], int_var = "lat", int_lab = "\nlatitude",
-  xlab = vars$x[[2]], col = cols, quant = quants, title = vars$y[[2]], type = "zoib")
-
-plot_interaction(out_q2[[3]], int_var = "prenbr", int_lab = "\npre NBR",
-  xlab = vars$x[[3]], col = cols, quant = quants, title = vars$y[[3]], type = "zoib")
-
-plot_interaction(out_q2[[4]], int_var = "lat", int_lab = "\nlatitude",
-  xlab = vars$x[[4]], col = cols, quant = quants, title = vars$y[[4]], type = "zoib")
-
-plot_interaction(out_q2[[5]], int_var = "heatload", int_lab = "\nheatload",
-  xlab = vars$x[[5]], col = cols, quant = quants, title = vars$y[[5]], type = "zoib")
+# plot_interaction(out_q2[[1]], int_var = "lat", int_lab = "\nlatitude",
+#   xlab = vars$x[[1]], col = cols, quant = quants, title = vars$y[[1]], type = "zoib")
+# 
+# plot_interaction(out_q2[[1]], int_var = "slope", int_lab = "\nslope",
+#   xlab = vars$x[[1]], col = cols, quant = quants, title = vars$y[[1]], type = "zoib")
+# 
+# plot_interaction(out_q2[[2]], int_var = "lat", int_lab = "\nlatitude",
+#   xlab = vars$x[[2]], col = cols, quant = quants, title = vars$y[[2]], type = "zoib")
+# 
+# plot_interaction(out_q2[[3]], int_var = "prenbr", int_lab = "\npre NBR",
+#   xlab = vars$x[[3]], col = cols, quant = quants, title = vars$y[[3]], type = "zoib")
+# 
+# plot_interaction(out_q2[[4]], int_var = "lat", int_lab = "\nlatitude",
+#   xlab = vars$x[[4]], col = cols, quant = quants, title = vars$y[[4]], type = "zoib")
+# 
+# plot_interaction(out_q2[[5]], int_var = "heatload", int_lab = "\nheatload",
+#   xlab = vars$x[[5]], col = cols, quant = quants, title = vars$y[[5]], type = "zoib")
 ```
 
 All:
@@ -372,9 +469,9 @@ for (j in response_j) {
         type = "zoib")
   }
 }
-pdf("figs/q2-interaction-ribbons.pdf", width = 13, height = 10)
-do.call("grid.arrange", c(q2_inter_plots, nrow = length(response_j)))
-dev.off()
+# pdf("figs/q2-interaction-ribbons.png", width = 13, height = 10, dpi = 200)
+# do.call("grid.arrange", c(q2_inter_plots, nrow = length(response_j)))
+# dev.off()
 ```
 
 ```{r}
@@ -403,14 +500,20 @@ for (j in response_j) {
 }
 q2_inter_plots_df <- bind_rows(q2_inter_plots)
 q2_inter_plots_df$level <- as.factor(q2_inter_plots_df$level)
+
+lets <- expand.grid(
+  response = factor(response_order, levels = response_order),
+  interaction = factor(inter_vars_long, levels = sort(inter_vars_long))) %>%
+  arrange(interaction, response) %>% 
+  mutate(panel = paste0("(", letters[seq_len(n())], ")"))
+
 g <- ggplot(q2_inter_plots_df, aes(x, est, ymin = lwr, ymax = upr, group = level,
   fill = level)) +
   geom_line(lwd = 1.2, aes(colour = level)) +
   geom_ribbon(alpha = 0.25) +
-  facet_grid(interaction~response) +
+  facet_grid(interaction~factor(response, levels = response_order)) +
   ggsidekick::theme_sleek() +
   ylab("Proportion") +
-  xlab("RdNBR_BL") +
   labs(colour = "Quantile",
     fill = "Quantile") +
   scale_colour_manual(values = cols, guide = guide_legend(reverse = TRUE)) +
@@ -418,10 +521,13 @@ g <- ggplot(q2_inter_plots_df, aes(x, est, ymin = lwr, ymax = upr, group = level
   scale_y_continuous(breaks = c(seq(0, 0.8, 0.2)), limits = c(0, 1)) +
   coord_cartesian(expand = FALSE) +
   theme(legend.justification = c(1, 0), legend.position = c(0.2, 0.8), 
-    panel.spacing = unit(-0.05, "lines"), legend.title = element_text(size = rel(0.8))) +
-  xlab("RdNBR")
+    panel.spacing = unit(-0.05, "lines"), 
+    legend.title = element_text(size = rel(0.8))) +
+  xlab("RdNBR") +
+  geom_text(data = lets, aes(label = panel), x = -100, y = 0.9,
+    inherit.aes = FALSE, col = "grey30")
 
-pdf("figs/q2-interaction-ribbons.pdf", width = 8, height = 5.5)
+png("figs/q2-interaction-ribbons.png", width = 9, height = 5.5, units = "in", res = 200)
 print(g)
 dev.off()
 ```
@@ -508,15 +614,16 @@ y_vars <- c(
 vars <- data.frame(x = x_vars, y = y_vars, stringsAsFactors = FALSE)
 
 x_vars <- tolower(c("xscaled"))
-extra_x_vars <- c("qmd_laf", "qmd_all", "ba_ha", "stems_ha", "redgraygreenstage_ba_p")
+extra_x_vars <- c("qmd_all", "ba_ha", "stems_ha", "redgraygreenstage_ba_p")
 x_vars <- paste(x_vars, extra_x_vars, sep = " * ")
 
 out_q3 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without parallel
   d <- get_dat(!!quo_name(y), !!quo_name(x),
     file = file,
     max_predictor = 2500)
-  dd <- filter(d, !is.na(qmd_laf), !is.na(qmd_all))
-  m <- fit_model_oib(dd, sm_oib, predictors = x_vars, iter = 4000, chains = 1)
+  dd <- filter(d, !is.na(qmd_all))
+  m <- fit_model_oib(dd, sm_oib, predictors = x_vars, iter = 1000, 
+    chains = 4)
   list(m = m, d = dd, x = x, y = y)
 }, .parallel = TRUE)
 ```
@@ -530,7 +637,7 @@ n <- length(p_q3)
 nCol <- floor(sqrt(n))
 do.call("grid.arrange", c(p_q3, ncol = nCol))
 
-pdf("figs/q3-coefs.pdf", width = 10, height = 8)
+png("figs/q3-coefs.png", width = 10, height = 8, units = "in", res = 200)
 do.call("grid.arrange", c(p_q3, ncol = nCol))
 dev.off()
 ```
@@ -541,27 +648,25 @@ Examples:
 cols <- viridis::plasma(3, end = 0.85) %>% rev()
 quants <- c(0.05, 0.5, 0.95)
 
-plot_interaction(out_q3[[1]], int_var = "qmd_laf", int_lab = "\nqmd_laf", 
-  xlab = vars$x[[1]], col = cols, quant = quants, title = vars$y[[1]], type = "oib")
-
-plot_interaction(out_q3[[2]], int_var = "redgraygreenstage_ba_p", 
-  int_lab = "\nRGGStg BA", xlab = vars$x[[2]], col = cols, quant = quants, title = vars$y[[2]], type = "oib")
-
-plot_interaction(out_q3[[3]], int_var = "ba_ha", int_lab = "\nBA", 
-  xlab = vars$x[[3]], col = cols, quant = quants, title = vars$y[[3]], type = "oib")
-
-plot_interaction(out_q3[[4]], int_var = "ba_ha", int_lab = "\nBA", 
-  xlab = vars$x[[4]], col = cols, quant = quants, title = vars$y[[4]], type = "oib")
-
-plot_interaction(out_q3[[5]], int_var = "ba_ha", int_lab = "\nBA", 
-  xlab = vars$x[[5]], col = cols, quant = quants, title = vars$y[[5]], type = "oib")
+# 
+# plot_interaction(out_q3[[2]], int_var = "redgraygreenstage_ba_p", 
+#   int_lab = "\nRGGStg BA", xlab = vars$x[[2]], col = cols, quant = quants, title = vars$y[[2]], type = "oib")
+# 
+# plot_interaction(out_q3[[3]], int_var = "ba_ha", int_lab = "\nBA", 
+#   xlab = vars$x[[3]], col = cols, quant = quants, title = vars$y[[3]], type = "oib")
+# 
+# plot_interaction(out_q3[[4]], int_var = "ba_ha", int_lab = "\nBA", 
+#   xlab = vars$x[[4]], col = cols, quant = quants, title = vars$y[[4]], type = "oib")
+# 
+# plot_interaction(out_q3[[5]], int_var = "ba_ha", int_lab = "\nBA", 
+#   xlab = vars$x[[5]], col = cols, quant = quants, title = vars$y[[5]], type = "oib")
 ```
 
 All:
 
 ```{r}
-inter_vars <- c("qmd_laf", "qmd_all", "ba_ha", "stems_ha", "redgraygreenstage_ba_p")
-inter_vars_long <- c("QMD\n(live at fire)", "QMD", "Stand\nbasal area", "Stand density", 
+inter_vars <- c("qmd_all", "ba_ha", "stems_ha", "redgraygreenstage_ba_p")
+inter_vars_long <- c("QMD", "Stand\nbasal area", "Stand density", 
   "Pre-fire beetle\noutbreak severity")
 vars_i <- seq_along(inter_vars)
 response_j <- seq_along(out_q3)
@@ -585,15 +690,21 @@ q3_inter_plots_df$level <- as.factor(q3_inter_plots_df$level)
 
 dd <- get_dat(response = "Firemort.BA.p", 
   main_predictor = "RdNBR_BL", file = file)
+
+lets <- expand.grid(
+  response = factor(response_order, levels = response_order),
+  interaction = factor(inter_vars_long, levels = sort(inter_vars_long))) %>%
+  arrange(interaction, response) %>% 
+  mutate(panel = paste0("(", letters[seq_len(n())], ")"))
+
 xlim_range <- range(dd$x)
-g <- ggplot(q3_inter_plots_df, aes(x, est, ymin = lwr, ymax = upr, group = level,
-  fill = level)) +
+g <- ggplot(q3_inter_plots_df, aes(x, est, ymin = lwr, ymax = upr, 
+  group = level, fill = level)) +
   geom_line(lwd = 1.2, aes(colour = level)) +
   geom_ribbon(alpha = 0.25) +
-  facet_grid(interaction~response) +
+  facet_grid(interaction~factor(response, levels = response_order)) +
   ggsidekick::theme_sleek() +
   ylab("Proportion") +
-  xlab("RdNBR_BL") +
   labs(colour = "Quantile",
     fill = "Quantile") +
   scale_colour_manual(values = cols, guide = guide_legend(reverse = TRUE)) +
@@ -601,11 +712,15 @@ g <- ggplot(q3_inter_plots_df, aes(x, est, ymin = lwr, ymax = upr, group = level
   scale_y_continuous(breaks = c(seq(0, 0.8, 0.2)), limits = c(0, 1)) +
   coord_cartesian(expand = FALSE) +
   theme(legend.justification = c(1, 0), legend.position = c(0.2, 0.8), 
-    panel.spacing = unit(-0.05, "lines"), legend.title = element_text(size = rel(0.8))) +
+    panel.spacing = unit(-0.05, "lines"), 
+    legend.title = element_text(size = rel(0.8))) +
   xlab("RdNBR") +
-  xlim(xlim_range)
+  xlim(xlim_range) +
+  geom_text(data = lets, aes(label = panel), x = -100, y = 0.9,
+    inherit.aes = FALSE, col = "grey30")
 
-pdf("figs/q3-interaction-ribbons.pdf", width = 8, height = 5.5)
+png("figs/q3-interaction-ribbons.png", width = 8, height = 5.5, 
+  units = "in", res = 200)
 print(g)
 dev.off()
 ```
@@ -617,22 +732,29 @@ aucs_q1$Q <- "Q1"
 aucs_q2$Q <- "Q2"
 aucs <- bind_rows(aucs_q1, aucs_q2) %>% 
   filter(x == "RdNBR_BL")
-  
+
+lets <- data.frame(new.names = response_order,
+  panel = 
+    paste0("(", letters[seq_along(response_order)], ")"),
+  stringsAsFactors = FALSE)
+
 aucs %>%
   mutate(x = gsub("_BL", "", x)) %>% 
   left_join(var_names, by = "y") %>% 
   ggplot(aes(thresh, auc, colour = Q)) +
   geom_line(lwd = 1.0) + 
-  facet_wrap(~new.names, scales = "fixed", nrow = 1) +
+  facet_wrap(~factor(new.names, levels = response_order), 
+    scales = "fixed", nrow = 1) +
   scale_color_brewer(palette = "Set1") +
   ggsidekick::theme_sleek() +
   theme_sleek() +
   labs(colour = "Covariates") +
-  xlab("Proportion burned threshold") + ylab("AUC") + 
-  theme(legend.position = c(0.905, 0.23)) +
+  xlab("Proportion threshold") + ylab("AUC") + 
+  theme(legend.position = c(0.07, 0.26)) +
   scale_y_continuous(breaks = seq(0.8, 0.95, 0.05)) +
   theme(strip.text = element_text(size = rel(0.87))) +
-  coord_cartesian(xlim = c(0, 0.99), expand = 0)
-ggsave("figs/auc-q1-vs-q2.pdf", width = 8.2, height = 2.5)
+  coord_cartesian(xlim = c(0, 0.99), ylim = c(0.82, 0.98), expand = 0) +
+  geom_text(data = lets, aes(label = panel), x = 0.1, y = 0.968,
+    inherit.aes = FALSE, col = "grey30")
+ggsave("figs/auc-q1-vs-q2.png", width = 8.2, height = 2.5, dpi = 200)
 ```
-
