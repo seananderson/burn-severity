@@ -20,6 +20,8 @@ get_dat <- function(response, main_predictor,
     mutate(y0 = ifelse(y == 0, 1, 0),
       y1 = ifelse(y == 1, 1, 0),
       yp = ifelse(y == 0 | y == 1, NA, y),
+      xraw_mean = mean(x),
+      xraw_sd = sd(x),
       xscaled = arm::rescale(x),
       group = as.factor(tolower(group)),
       group_id = as.integer(group)) %>%
@@ -191,7 +193,6 @@ make_predictions <- function(d, f, model, Npred = 200L, use_new_data = TRUE,
       group_id = unique(d$group_id), y = 1)
   } else {
     d_pred <- d
-    Npred
   }
   e <- rstan::extract(model)
 

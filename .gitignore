@@ -15,3 +15,16 @@ figs-knitr
 *.fdb_latexmk
 *.aux
 *.png
+*.tif
+map/RedRockFire_Indices/RR_dNBR.tif.xml
+*.CPG
+*.dbf
+*.prj
+*.sbn
+*.sbx
+*.shp
+*.xml
+*.shx
+*.tfw
+*.rrd
+*.ini
