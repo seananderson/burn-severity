@@ -17,8 +17,9 @@ get_dat <- function(response, main_predictor,
     filter(!is.na(!!response), !is.na(!!main_predictor)) %>%
     rename(y = !!response, x = !!main_predictor, group = FIRE) %>%
     filter(x <= max_predictor) %>%
-    mutate(y0 = ifelse(y == 0, 1, 0),
-      y1 = ifelse(y == 1, 1, 0),
+    mutate(
+      y0 = ifelse(y == 0, 1, 0),
+      y1 = ifelse(y == 1 & y != 0, 1, ifelse(y < 1 & y != 0, 0, NA)),
       yp = ifelse(y == 0 | y == 1, NA, y),
       xraw_mean = mean(x),
       xraw_sd = sd(x),
@@ -45,16 +46,17 @@ prep_stan_dat_oib <- function(d, predictors = "xscaled") {
     group_id = as.integer(group)) %>%
     arrange(group_id, x)
   dp <- filter(d, !is.na(yp))
+  d1 <- filter(d, !is.na(y1))
 
   # N0 <- nrow(d)
-  N1 <- nrow(d)
+  N1 <- nrow(d1)
   Np <- nrow(dp)
 
   # f0 <- as.formula(paste("y0 ~", paste(predictors, collapse = " + ")))
   f1 <- as.formula(paste("y1 ~", paste(predictors, collapse = " + ")))
   fp <- as.formula(paste("y ~", paste(predictors, collapse = " + ")))
   # mm0 <- as.matrix(model.matrix(f0, data = d))
-  mm1 <- as.matrix(model.matrix(f1, data = d))
+  mm1 <- as.matrix(model.matrix(f1, data = d1))
   mmp <- as.matrix(model.matrix(fp, data = dp))
 
   sd <- list(
@@ -67,12 +69,12 @@ prep_stan_dat_oib <- function(d, predictors = "xscaled") {
     X1_ij = mm1,
     Xp_ij = mmp,
     # y0_i = d$y0,
-    y1_i = d$y1,
+    y1_i = d1$y1,
     yp_i = dp$y,
 
     Ng = length(unique(as.character(d$group))),
     # group_id0 = d$group_id,
-    group_id1 = d$group_id,
+    group_id1 = d1$group_id,
     group_idp = dp$group_id)
 
   list(stan_dat = sd, f = fp)
@@ -85,17 +87,18 @@ prep_stan_dat <- function(d, predictors = "xscaled") {
       group = as.factor(as.character(group)),
       group_id = as.integer(group)) %>%
     arrange(group_id, x)
+  d1 <- filter(d, !is.na(y1))
   dp <- filter(d, !is.na(yp))
 
   N0 <- nrow(d)
-  N1 <- nrow(d)
+  N1 <- nrow(d1)
   Np <- nrow(dp)
 
   f0 <- as.formula(paste("y0 ~", paste(predictors, collapse = " + ")))
   f1 <- as.formula(paste("y1 ~", paste(predictors, collapse = " + ")))
   fp <- as.formula(paste("y ~", paste(predictors, collapse = " + ")))
   mm0 <- as.matrix(model.matrix(f0, data = d))
-  mm1 <- as.matrix(model.matrix(f1, data = d))
+  mm1 <- as.matrix(model.matrix(f1, data = d1))
   mmp <- as.matrix(model.matrix(fp, data = dp))
 
   sd <- list(
@@ -108,12 +111,12 @@ prep_stan_dat <- function(d, predictors = "xscaled") {
     X1_ij = mm1,
     Xp_ij = mmp,
     y0_i = d$y0,
-    y1_i = d$y1,
+    y1_i = d1$y1,
     yp_i = dp$y,
 
     Ng = length(unique(as.character(d$group))),
     group_id0 = d$group_id,
-    group_id1 = d$group_id,
+    group_id1 = d1$group_id,
     group_idp = dp$group_id)
 
   list(stan_dat = sd, f = fp)

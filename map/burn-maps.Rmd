@@ -144,7 +144,7 @@ ggplot(xx, aes(x, y, fill = RdNBR_BL)) + geom_raster() +
   theme(axis.text = element_blank(), axis.ticks = element_blank())
 ```
 
-```{r, fig.asp=1, fig.cap="The 5%, 50%, and 95% quantiles of the posterior. The variation across dwarfs of the width of the credible intervals."}
+```{r, fig.asp=1, fig.cap="The 5%, 50%, and 95% quantiles of the posterior."}
 fig <- select(xx, x, y, response, q0.05, q0.50, q0.95) %>%
   rename(`5% quantile` = q0.05, `95% quantile` = q0.95, `Median` = q0.50) %>% 
   mutate(response = gsub("Firemort.BA.p", "Basal area killed by fire", response)) %>% 
@@ -177,18 +177,18 @@ cvd_grid(fig)
 dev.off()
 ```
 
-```{r, fig.asp=1.2, fig.cap="A breakdown of the components of the final model. The top row shows the probability of not getting a 0 (i.e. prob. of getting some vs. no surface char or fire mortality). The second row shows the proportional model for non zeros and ones. The third row shows the probability of a 1 (complete surface char or fire mortality vs. incomplete). The final row shows the median of the posterior of the final unconditional estimate (same as the previous plot)."}
+```{r, fig.asp=1.2, fig.cap="A breakdown of the components of the final model."}
 select(xx, x, y, response, pp_est, p0_est, p1_est, q0.50) %>%
   mutate(`Probability not 0` = 1 - p0_est) %>% 
   select(-p0_est) %>%
   rename(`Proportion if not 0 or 1` = pp_est) %>% 
-  rename(`Probability 1` = p1_est) %>% 
+  rename(`Probability 1 if y not 0` = p1_est) %>% 
   rename(`Combined proportion estimate` = q0.50) %>% 
   reshape2::melt(id.vars = c("x", "y", "response")) %>%
   mutate(variable = 
       factor(variable, 
         levels = c("Probability not 0", "Proportion if not 0 or 1", 
-          "Probability 1", "Combined proportion estimate"))) %>% 
+          "Probability 1 if y not 0", "Combined proportion estimate"))) %>% 
    mutate(response = gsub("Firemort.BA.p", "Basal area killed by fire", response)) %>% 
   mutate(response = gsub("CHARCOV", "Charred surface cover", response)) %>%
   ggplot(aes(x, y, fill = value)) + geom_raster() +
@@ -208,55 +208,4 @@ select(xx, x, y, response, pp_est, p0_est, p1_est, q0.50) %>%
     legend.title = element_text(size = 8)) +
   guides(fill = guide_colourbar(barwidth = 0.8, barheight = 3.1))
 ggsave("map-components.png", width = 4, height = 7.5, dpi = 200)
-```
-
-```{r, fig.cap="The median of the posterior estimates (top row) and the width of the 90% credible interval (lower row). It seems a little strange how consistent the width of the credible interval is for CHARCOV."}
-g1 <- select(xx, x, y, response, q0.50, ci_width_90) %>%
-  reshape2::melt(id.vars = c("x", "y", "response")) %>%
-  filter(variable == "q0.50", response == "Firemort.BA.p") %>%
-  ggplot(aes(x, y, fill = value)) + geom_raster() +
-  facet_grid(variable~response) +
-  scale_fill_distiller(palette = "RdBu", limits = c(0, 1)) +
-  coord_equal() +
-  ggsidekick::theme_sleek() +
-  theme(axis.text = element_blank(), axis.ticks = element_blank()) +
-  xlab("") + ylab("")
-
-g2 <- select(xx, x, y, response, q0.50, ci_width_90) %>%
-  reshape2::melt(id.vars = c("x", "y", "response")) %>%
-  filter(variable == "q0.50", response == "CHARCOV") %>%
-  ggplot(aes(x, y, fill = value)) + geom_raster() +
-  facet_grid(variable~response) +
-  scale_fill_distiller(palette = "RdBu", limits = c(0, 1)) +
-  coord_equal() +
-  ggsidekick::theme_sleek() +
-  theme(axis.text = element_blank(), axis.ticks = element_blank()) +
-  xlab("") + ylab("")
-
-g3 <- select(xx, x, y, response, q0.50, ci_width_90) %>%
-  reshape2::melt(id.vars = c("x", "y", "response")) %>%
-  filter(variable == "ci_width_90", response == "Firemort.BA.p") %>%
-  ggplot(aes(x, y, fill = value)) + geom_raster() +
-  facet_grid(variable~response) +
-  viridis::scale_fill_viridis(option = "D", trans = "sqrt") +
-  coord_equal() +
-  ggsidekick::theme_sleek() +
-  theme(axis.text = element_blank(), axis.ticks = element_blank()) +
-  xlab("") + ylab("")
-
-g4 <- select(xx, x, y, response, q0.50, ci_width_90) %>%
-  reshape2::melt(id.vars = c("x", "y", "response")) %>%
-  filter(variable == "ci_width_90", response == "CHARCOV") %>%
-  ggplot(aes(x, y, fill = value)) + geom_raster() +
-  facet_grid(variable~response) +
-  viridis::scale_fill_viridis(option = "D", trans = "sqrt") +
-  coord_equal() +
-  ggsidekick::theme_sleek() +
-  theme(axis.text = element_blank(), axis.ticks = element_blank()) +
-  xlab("") + ylab("")
-
-g <- cowplot::plot_grid(g1, g2, g3, g4)
-g
-
-ggsave("map-eg.pdf", width = 8, height = 7)
 ```
