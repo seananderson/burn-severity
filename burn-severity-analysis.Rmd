@@ -152,12 +152,19 @@ aucs_q1_summ %>% group_by(y) %>%
   mutate(rank = seq_len(n())) %>%
   group_by(x) %>%
   mutate(mean_rank = mean(rank)) %>%
-  ggplot(aes(y, forcats::fct_reorder(x, -mean_rank))) +
+  left_join(var_names) %>% 
+  ungroup() %>% 
+  mutate(x = gsub("_BL", "-BL", x)) %>% 
+  ggplot(aes(factor(new.names, levels = rev(response_order)), 
+    forcats::fct_reorder(x, mean_rank))) +
   viridis::scale_fill_viridis(direction = -1) +
   geom_tile(aes(fill = rank)) +
   xlab("") + ylab("") +
   theme_sleek() +
-  coord_cartesian(expand = FALSE)
+  labs(fill = "Mean\nAUC\nrank") +
+  # theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_flip(expand = FALSE)
+ggsave("figs/mean-auc-ranked.png", width = 6.5, height = 3.7)
 ```
 
 E.g. ROC:
