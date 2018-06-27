@@ -139,7 +139,7 @@ x_ <- -1154000 + 1000
 y_ <- 2364000 + 2000
 size_ <- 4000
 checking_square <- geom_polygon(data = data.frame(x = c(x_, x_ + size_, x_ + size_, x_),
-    y = c(y_, y_, y_ + size_, y_ + size_)), aes_string(x = "x", y = "y"),
+    y = c(y_, y_, y_ + size_, y_ + size_), response = "RdNBR"), aes_string(x = "x", y = "y"),
     inherit.aes = FALSE, fill = "grey50", lwd = 1, col = "black")
 
 lets <- data.frame(
@@ -151,27 +151,41 @@ lets <- data.frame(
   y = max(xx$y) - diff(range(xx$y)) * 0.02,
   stringsAsFactors = FALSE)
 
+lets$panel[lets$panel == "(b)"] <- ""
+
+lets$response <- "RdNBR"
+lets$predictor <- ""
+
 predictor_plot <- 
   xx %>% 
   mutate(response = gsub("Firemort.BA.p", "Basal area killed by fire", response)) %>% 
   mutate(response = gsub("CHARCOV", "Charred surface cover", response)) %>%
   mutate(predictor = gsub("RdNBR_BL", "RdNBR", predictor)) %>%
+  # mutate(y = ifelse(response == "Basal area killed by fire", y, NA)) %>%
+  filter(response == "Basal area killed by fire") %>% 
+  mutate(response = "RdNBR") %>%
+  mutate(predictor = "") %>%
   ggplot(aes(x, y, fill = RdNBR_BL)) + 
   geom_raster() +
-  facet_grid(predictor~response) +
-  viridis::scale_fill_viridis(option = "C") +
-  # coord_equal() +
+  facet_grid(predictor~as.character(response)) +
+  # viridis::scale_fill_viridis(option = "D") +
+  scale_fill_distiller(palette = "Greys") +
+  coord_fixed() +
   ggsidekick::theme_sleek() +
   xlab("") + ylab("") +
   labs(fill = "RdNBR") +
   geom_text(data = lets, aes(label = panel, x = x, y = y), 
     inherit.aes = FALSE, col = "grey30") +
+    # theme(aspect.ratio = 1) +
+   # theme(
+  # strip.background = element_blank(),
+  # strip.text.x = element_blank()) +
   theme(
     legend.justification = c(1, 0), 
-    legend.position = c(0.169, 0.022),
+    legend.position = c(0.38, 0.01),
     legend.text = element_text(size = 6), 
     legend.title = element_text(size = 8)) +
-  guides(fill = guide_colourbar(barwidth = 0.8, barheight = 3.5)) +
+  guides(fill = guide_colourbar(barwidth = 0.8, barheight = 3.0)) +
   theme(axis.text = element_blank(), axis.ticks = element_blank()) +
   xlab("") + ylab("") #+ checking_square 
 # predictor_plot
@@ -186,7 +200,7 @@ lets2 <- data.frame(
     "Predicted 95% quantile"), each = 2),
   response = rep(c("Basal area killed by fire", "Charred surface cover"), 3),
   panel = 
-    paste0("(", letters[2 + seq_len(6)], ")"),
+    paste0("(", letters[1 + seq_len(6)], ")"),
   x = unique(lets$x),
   y = unique(lets$y),
   stringsAsFactors = FALSE)
@@ -202,6 +216,7 @@ fig <- select(xx, x, y, response, q0.05, q0.50, q0.95) %>%
     "Predicted median",
     "Predicted 95% quantile"
   ))~response) +
+  coord_fixed() +
   # scale_fill_distiller(palette = "RdBu", limits = c(0, 1)) +
   # scale_fill_distiller(palette = "RdGy", limits = c(0, 1), direction = -1) +
   viridis::scale_fill_viridis(option = "D", limits = c(0, 1), direction = 1) +
@@ -211,26 +226,23 @@ fig <- select(xx, x, y, response, q0.05, q0.50, q0.95) %>%
   # coord_equal() +
   ggsidekick::theme_sleek() +
   labs(fill = "Proportion") +
+    # theme(aspect.ratio = 1) +
   theme(legend.justification = c(1, 0), 
-    legend.position = c(0.20, 0.68),
+    legend.position = c(0.23, 0.68),
     legend.text = element_text(size = 6), 
     legend.title = element_text(size = 8)) +
-  guides(fill = guide_colourbar(barwidth = 0.8, barheight = 3.5)) +
+  guides(fill = guide_colourbar(barwidth = 0.8, barheight = 3.0)) +
   theme(axis.text = element_blank(), axis.ticks = element_blank()) +
   xlab("") + ylab("") +
   geom_text(data = lets2, aes(label = panel, x = x, y = y), 
-    inherit.aes = FALSE, col = "grey30") +
-  theme(
-  strip.background = element_blank(),
-  strip.text.x = element_blank()) #+
-  # checking_square
+    inherit.aes = FALSE, col = "grey30") #+ checking_square
   
 # fig
 
 g <- cowplot::plot_grid(predictor_plot, fig, ncol = 1, rel_heights = c(1.03, 2.5),
   align = "v", axis = "l")
 
-ggsave("map-cred2.png", width = 4, height = 8.5, dpi = 200)
+ggsave("map-cred2.png", width = 3.9, height = 7.9, dpi = 220)
 
 # library(colorblindr)
 # pdf("cb.pdf", width = 10, height = 10)
