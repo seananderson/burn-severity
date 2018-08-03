@@ -22,35 +22,36 @@ knitr::opts_chunk$set(
 ```
 
 ```{r process}
-# importing RdNBR
-RdNBR <- raster::raster("RedRockFire_Indices/RR_RdNBR.tif")
-# importing shapefile for fire perimeter
-perim <- rgdal::readOGR(dsn = "RedRockFire_Indices", layer = "RR_firePerimeter")
-
-# masking to fire perimeter
-RdNBR.m <- raster::mask(RdNBR, perim)
-raster::plot(RdNBR.m)
-
-# creating a point file
-RdNBR.pt <- raster::rasterToPoints(RdNBR.m, spatial = TRUE)
-raster::plot(RdNBR.pt)
-
-# Reproject to RasterLayer's CRS - not necessary in this case b/c data all in
-# same projection
-# RdNBR.pt2 <- spTransform(RdNBR.pt, CRS(projection(RdNBR.m)))
-
-# creating dataframe with values from RdNBR.pt
-data <- data.frame(
-  sp::coordinates(RdNBR.pt),
-  raster::extract(RdNBR.m, RdNBR.pt, method = "bilinear")
-)
-colnames(data) <- c("x", "y", "RdNBR_BL")
-
-readr::write_rds(data, "RedRocks_coords_RdNBR_BL.rds")
+# # importing RdNBR
+# RdNBR <- raster::raster("RedRockFire_Indices/RR_RdNBR.tif")
+# # importing shapefile for fire perimeter
+# perim <- rgdal::readOGR(dsn = "RedRockFire_Indices", layer = "RR_firePerimeter")
+# 
+# # masking to fire perimeter
+# RdNBR.m <- raster::mask(RdNBR, perim)
+# raster::plot(RdNBR.m)
+# 
+# # creating a point file
+# RdNBR.pt <- raster::rasterToPoints(RdNBR.m, spatial = TRUE)
+# raster::plot(RdNBR.pt)
+# 
+# # Reproject to RasterLayer's CRS - not necessary in this case b/c data all in
+# # same projection
+# # RdNBR.pt2 <- spTransform(RdNBR.pt, CRS(projection(RdNBR.m)))
+# 
+# # creating dataframe with values from RdNBR.pt
+# data <- data.frame(
+#   sp::coordinates(RdNBR.pt),
+#   raster::extract(RdNBR.m, RdNBR.pt, method = "bilinear")
+# )
+# colnames(data) <- c("x", "y", "RdNBR_BL")
+# 
+# readr::write_rds(data, "RedRocks_coords_RdNBR_BL.rds")
 ```
 
 ```{r fit, results='hide'}
-data <- readr::read_rds("RedRocks_coords_RdNBR_BL.rds")
+# data <- readr::read_rds("RedRocks_coords_RdNBR_BL.rds")
+data <- readr::read_csv("RedRocks_data_Fig6.csv")
 library(dplyr)
 library(rstan)
 library(readr)

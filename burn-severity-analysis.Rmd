@@ -55,7 +55,7 @@ vars <- expand.grid(x = x_vars, y = y_vars, stringsAsFactors = FALSE)
 out_q1 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without parallel
   d <- get_dat(!!quo_name(y), !!quo_name(x),
     file = file, max_predictor = 2500)
-  m <- fit_model(d, model = sm, predictors = "xscaled", iter = 1000L, 
+  m <- fit_model(d, model = sm, predictors = "xscaled", iter = 1000L,
     chains = 4L)
   list(m = m, d = d, x = x, y = y)
 }, .parallel = TRUE)
@@ -64,31 +64,15 @@ out_q1 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without paralle
 Basic plots for supplement:
 
 ```{r}
-var_names <- read.csv("data/VariableNames.csv", stringsAsFactors = FALSE, strip.white = TRUE) %>% 
+var_names <- read.csv("data/VariableNames.csv", stringsAsFactors = FALSE, strip.white = TRUE) %>%
   rename(y = old.names)
 response_order <- c(
-  "Basal area killed by fire", 
+  "Basal area killed by fire",
   "Trees killed by fire",
-  "Bole scorch", 
-  "Char height", 
+  "Bole scorch",
+  "Char height",
   "Charred surface cover"
 )
-```
-
-```{r}
-# raw_plots_q1 <- 
-#   plyr::llply(out_q1, function(x) {
-#     p <- make_predictions(d = x$d, f = x$m$f, model = x$m$model)
-#     g <- make_pred_plot(pred_df = p, raw_data = x$d) +
-#       xlab(x$x) +
-#       ggtitle(var_names$new.names[var_names$y == x$y]) +
-#       guides(colour = FALSE)
-#   }, .parallel = TRUE)
-# library(gridExtra)
-# nRow <- length(x_vars)
-# pdf("figs/raw-plots-q1.pdf", width = 13, height = 10)
-# do.call("grid.arrange", c(raw_plots_q1, nrow = nRow, as.table = FALSE))
-# dev.off()
 ```
 
 Get AUC values:
@@ -109,7 +93,7 @@ thresholds <- seq(0.05, 0.95, length.out = 5)
 aucs_q1 <- plyr::ldply(out_q1, function(x) {
   predictions <- make_predictions_dat(model = x$m$model, f = x$m$f, d = x$d)
   aucs_i <- make_roc(d = x$d, predictions = predictions, return_plot = FALSE, thresh = thresholds)
-  looic <- tryCatch({get_loo(x$m$model)}, error = function(e) NA )  
+  looic <- tryCatch({get_loo(x$m$model)}, error = function(e) NA )
   b <- broom::tidyMCMC(x$m$model, rhat = TRUE, ess = TRUE)
   data.frame(x = x$x, y = x$y,
     auc = aucs_i,
@@ -133,14 +117,14 @@ g + geom_tile(aes(fill = auc_lwr))
 g + geom_tile(aes(fill = auc_upr))
 
 aucs_q1_summ %>% group_by(y) %>%
-  arrange(-auc_mean) %>% 
-  ungroup() %>% 
+  arrange(-auc_mean) %>%
+  ungroup() %>%
   ggplot(aes(x, auc_mean, ymin = auc_lwr, ymax = auc_upr, colour = auc_mean)) +
   geom_pointrange() +
   facet_wrap(~y, scales = "free_x") +
   viridis::scale_colour_viridis() +
   xlab("") + ylab("AUC") + theme_sleek() +
-  coord_cartesian(expand = FALSE) + 
+  coord_cartesian(expand = FALSE) +
   coord_flip()
 ```
 
@@ -152,17 +136,16 @@ aucs_q1_summ %>% group_by(y) %>%
   mutate(rank = seq_len(n())) %>%
   group_by(x) %>%
   mutate(mean_rank = mean(rank)) %>%
-  left_join(var_names) %>% 
-  ungroup() %>% 
-  mutate(x = gsub("_BL", "-BL", x)) %>% 
-  ggplot(aes(factor(new.names, levels = rev(response_order)), 
+  left_join(var_names) %>%
+  ungroup() %>%
+  mutate(x = gsub("_BL", "-BL", x)) %>%
+  ggplot(aes(factor(new.names, levels = rev(response_order)),
     forcats::fct_reorder(x, mean_rank))) +
   viridis::scale_fill_viridis(direction = -1) +
   geom_tile(aes(fill = rank)) +
   xlab("") + ylab("") +
   theme_sleek() +
   labs(fill = "Mean\nAUC\nrank") +
-  # theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   coord_flip(expand = FALSE)
 ggsave("figs/mean-auc-ranked.png", width = 6.5, height = 3.7)
 ```
@@ -172,7 +155,7 @@ E.g. ROC:
 ```{r}
 x <- out_q1[[20]]
 a <- make_predictions_dat(x$m$model, f = x$m$f, d = x$d)
-make_roc(x$d, a, thresh = thresholds) + 
+make_roc(x$d, a, thresh = thresholds) +
   ggtitle(paste(var_names$new.names[var_names$y == x$y], "/", x$x)) +
   labs(colour = "Threshold") +
   xlab("False positive rate") +
@@ -187,24 +170,24 @@ ggsave("figs/roc-example.png", width = 5.5, height = 5, dpi = 200)
 
 ```{r}
 lets <- data.frame(new.names = response_order,
-  panel = 
+  panel =
     paste0("(", letters[5 + seq_along(response_order)], ")"),
   stringsAsFactors = FALSE)
 
-lower_panel <- 
+lower_panel <-
   aucs_q1 %>% filter(x %in% c("dNBR_BL", "RBR_BL", "RdNBR_BL")) %>%
-  mutate(x = gsub("_BL", "", x)) %>% 
+  mutate(x = gsub("_BL", "", x)) %>%
   left_join(var_names, by = "y") %>%
   ggplot(aes(thresh, auc, colour = x)) +
-  geom_line(lwd = 1) + 
-  facet_wrap(~factor(new.names, levels = response_order), 
+  geom_line(lwd = 1) +
+  facet_wrap(~factor(new.names, levels = response_order),
     scales = "fixed", nrow = 1) +
   scale_color_brewer(palette = "Dark2") +
   # viridis::scale_colour_viridis(discrete = TRUE) +
   ggsidekick::theme_sleek() +
   theme_sleek() +
   labs(colour = "Burn severity index") +
-  xlab("Proportion threshold") + ylab("AUC") + 
+  xlab("Proportion threshold") + ylab("AUC") +
   theme(legend.position = c(0.093, 0.26)) +
   scale_y_continuous(breaks = seq(0.8, 0.95, 0.05)) +
   theme(strip.text = element_text(size = rel(0.87))) +
@@ -212,7 +195,7 @@ lower_panel <-
   geom_text(data = lets, aes(label = panel), x = 0.1, y = 0.968,
     inherit.aes = FALSE, col = "grey30")
 
-dat_q1_pred <- 
+dat_q1_pred <-
   plyr::ldply(out_q1, function(x) {
     p <- make_predictions(d = x$d, f = x$m$f, model = x$m$model)
     p$response <- var_names$new.names[var_names$y == x$y]
@@ -220,7 +203,7 @@ dat_q1_pred <-
     p
   }, .parallel = TRUE)
 
-dat_q1_raw <- 
+dat_q1_raw <-
   plyr::ldply(out_q1, function(x) {
     x$d$response <- var_names$new.names[var_names$y == x$y]
     x$d$predictor <- x$x
@@ -228,21 +211,21 @@ dat_q1_raw <-
   }, .parallel = TRUE)
 
 lets <- data.frame(response = response_order,
-  panel = 
+  panel =
     paste0("(", letters[seq_along(response_order)], ")"),
   stringsAsFactors = FALSE)
 
 upper_panel <- ggplot(
-  filter(dat_q1_pred, predictor == "RdNBR_BL"), 
+  filter(dat_q1_pred, predictor == "RdNBR_BL"),
   aes(x, est, ymin = lwr, ymax = upr)) +
-    geom_point(data = filter(dat_q1_raw, predictor == "RdNBR_BL"), 
+    geom_point(data = filter(dat_q1_raw, predictor == "RdNBR_BL"),
       aes(x, y, group = group), colour = "grey30",
       inherit.aes = FALSE, alpha = 0.2, size = 0.7) +
     geom_line(aes(y = est_re, group = as.factor(group)),
     col = "grey35", lty = 1, lwd = 0.4, alpha = 0.7) +
-    geom_line(lwd = 1.5, 
+    geom_line(lwd = 1.5,
       colour = RColorBrewer::brewer.pal(3, "Dark2")[[3]]) +
-    geom_ribbon(alpha = 0.3, 
+    geom_ribbon(alpha = 0.3,
       fill = RColorBrewer::brewer.pal(3, "Dark2")[[3]]) +
     ylim(0, 1) +
     ggsidekick::theme_sleek() +
@@ -268,7 +251,7 @@ dat_q1_raw2 <- mutate(dat_q1_raw, response = gsub("Basal area killed by fire", "
 dat_q1_pred2 <- mutate(dat_q1_pred2, response = gsub("Charred surface cover", "Charred\\\nsurface cover", response))
 dat_q1_raw2 <- mutate(dat_q1_raw2, response = gsub("Charred surface cover", "Charred\\\nsurface cover", response))
 
-response_order2 <- gsub("Basal area killed by fire", 
+response_order2 <- gsub("Basal area killed by fire",
   "Basal area\\\nkilled by fire", response_order)
 response_order2 <- gsub("Charred surface cover", "Charred\\\nsurface cover",
   response_order2)
@@ -276,7 +259,7 @@ response_order2 <- gsub("Charred surface cover", "Charred\\\nsurface cover",
 ggplot(
   filter(dat_q1_pred2),
   aes(x, est, ymin = lwr, ymax = upr)) +
-  geom_point(data = filter(dat_q1_raw2), 
+  geom_point(data = filter(dat_q1_raw2),
     aes(x, y, group = group), colour = "grey30",
     inherit.aes = FALSE, alpha = 0.15, size = 0.7) +
   geom_line(aes(y = est_re, group = as.factor(group)),
@@ -288,7 +271,7 @@ ggplot(
   ylab("Proportion") +
   xlab("Predictor value") +
   labs(colour = "Fire location") +
-  facet_grid(factor(response, levels = response_order2)~predictor, 
+  facet_grid(factor(response, levels = response_order2)~predictor,
     scales = "free_x")
 
 ggsave("figs/figS1.png", width = 9.5, height = 6, dpi = 200)
@@ -298,93 +281,93 @@ Cross-val. Go-go-gadget 8 cores:
 
 ```{r q1-cross-val, cache=TRUE}
 dir.create("data-generated", showWarnings = FALSE)
-d <- get_dat(Firemort.BA.p, RdNBR, file = file)
-fires <- unique(d$group) %>% as.character()
-
-if (!file.exists("data-generated/q1-out-cv.rds")) {
-  out_cv <- plyr::mlply(.data = vars, function(x, y) { # or map2() without parallel
-    d <- get_dat(!!quo_name(y), !!quo_name(x),
-      file = file,
-      max_predictor = 2500)
-    m <- map(fires, function(x) {
-      fit_model(d = d[d$group != x, , drop = FALSE], model = sm,
-        predictors = "xscaled", iter = 500L, chains = 1L, log_lik = FALSE)
-    })
-    p <- map2_df(m, fires, function(x, y) {
-      dd <- d[d$group == y, , drop = FALSE]
-      dd$prediction <- make_predictions_dat(d = dd, f = x$f, model = x$model)
-      dd
-    })
-    rhat <- map_dbl(m, function(mm) max(summary(mm$model)$summary[,"Rhat"]))
-    ess <- map_dbl(m, function(mm) max(summary(mm$model)$summary[,"n_eff"]))
-    list(p = p, d = d, x = x, y = y, rhat = rhat, ess = ess, fires = fires)
-  }, .parallel = TRUE)
-  saveRDS(out_cv, file = "data-generated/q1-out-cv.rds")
-} else {
-  out_cv <- readRDS("data-generated/q1-out-cv.rds")
-}
+## d <- get_dat(Firemort.BA.p, RdNBR, file = file)
+## fires <- unique(d$group) %>% as.character()
+##
+## if (!file.exists("data-generated/q1-out-cv.rds")) {
+##   out_cv <- plyr::mlply(.data = vars, function(x, y) { # or map2() without parallel
+##     d <- get_dat(!!quo_name(y), !!quo_name(x),
+##       file = file,
+##       max_predictor = 2500)
+##     m <- map(fires, function(x) {
+##       fit_model(d = d[d$group != x, , drop = FALSE], model = sm,
+##         predictors = "xscaled", iter = 500L, chains = 1L, log_lik = FALSE)
+##     })
+##     p <- map2_df(m, fires, function(x, y) {
+##       dd <- d[d$group == y, , drop = FALSE]
+##       dd$prediction <- make_predictions_dat(d = dd, f = x$f, model = x$model)
+##       dd
+##     })
+##     rhat <- map_dbl(m, function(mm) max(summary(mm$model)$summary[,"Rhat"]))
+##     ess <- map_dbl(m, function(mm) max(summary(mm$model)$summary[,"n_eff"]))
+##     list(p = p, d = d, x = x, y = y, rhat = rhat, ess = ess, fires = fires)
+##   }, .parallel = TRUE)
+##   saveRDS(out_cv, file = "data-generated/q1-out-cv.rds")
+## } else {
+##   out_cv <- readRDS("data-generated/q1-out-cv.rds")
+## }
 ```
 
 Get AUC values:
 
 ```{r, warning=FALSE}
-aucs_cv <- map_df(out_cv, function(x) {
-  aucs_i <- make_roc(d = x$p, predictions = x$p$prediction, return_plot = FALSE, thresh = thresholds)
-  data.frame(x = x$x, y = x$y, auc = aucs_i, thresh = thresholds,
-    auc_mean = mean(aucs_i), auc_lwr = min(aucs_i), auc_upr = max(aucs_i),
-    stringsAsFactors = FALSE)
-})
+## aucs_cv <- map_df(out_cv, function(x) {
+##   aucs_i <- make_roc(d = x$p, predictions = x$p$prediction, return_plot = FALSE, thresh = thresholds)
+##   data.frame(x = x$x, y = x$y, auc = aucs_i, thresh = thresholds,
+##     auc_mean = mean(aucs_i), auc_lwr = min(aucs_i), auc_upr = max(aucs_i),
+##     stringsAsFactors = FALSE)
+## })
 ```
 
 Plot comparisons:
 
 ```{r}
-aucs_cv_summ <- select(aucs_cv, -auc, -thresh) %>% unique()
-g <- ggplot(aucs_cv_summ, aes(y, x)) +
-  viridis::scale_fill_viridis() +
-  xlab("") + ylab("") + theme_sleek() +
-  coord_cartesian(expand = FALSE)
-
-g + geom_tile(aes(fill = auc_mean))
-g + geom_tile(aes(fill = auc_lwr))
-g + geom_tile(aes(fill = auc_upr))
+## aucs_cv_summ <- select(aucs_cv, -auc, -thresh) %>% unique()
+## g <- ggplot(aucs_cv_summ, aes(y, x)) +
+##   viridis::scale_fill_viridis() +
+##   xlab("") + ylab("") + theme_sleek() +
+##   coord_cartesian(expand = FALSE)
+##
+## g + geom_tile(aes(fill = auc_mean))
+## g + geom_tile(aes(fill = auc_lwr))
+## g + geom_tile(aes(fill = auc_upr))
 ```
 
 Ranked within field measurement and ordered by mean rank:
 
 ```{r}
-aucs_cv_summ %>% group_by(y) %>%
-  arrange(-auc_mean) %>%
-  mutate(rank = seq_len(n())) %>%
-  group_by(x) %>%
-  mutate(mean_rank = mean(rank)) %>%
-  ggplot(aes(y, forcats::fct_reorder(x, -mean_rank))) +
-  viridis::scale_fill_viridis(direction = -1) +
-  geom_tile(aes(fill = rank)) +
-  xlab("") + ylab("") +
-  theme_sleek() +
-  coord_cartesian(expand = FALSE)
+## aucs_cv_summ %>% group_by(y) %>%
+##   arrange(-auc_mean) %>%
+##   mutate(rank = seq_len(n())) %>%
+##   group_by(x) %>%
+##   mutate(mean_rank = mean(rank)) %>%
+##   ggplot(aes(y, forcats::fct_reorder(x, -mean_rank))) +
+##   viridis::scale_fill_viridis(direction = -1) +
+##   geom_tile(aes(fill = rank)) +
+##   xlab("") + ylab("") +
+##   theme_sleek() +
+##   coord_cartesian(expand = FALSE)
 ```
 
 ## Figure 2 with CV:
 
 ```{r}
-aucs_cv %>% filter(x %in% c("dNBR_BL", "RBR_BL", "RdNBR_BL")) %>%
-  mutate(x = gsub("_BL", "", x)) %>% 
-  left_join(var_names, by = "y") %>% 
-  ggplot(aes(thresh, auc, colour = x)) +
-  geom_line(lwd = 1) + 
-  facet_wrap(~new.names, scales = "fixed", nrow = 1) +
-  scale_color_brewer(palette = "Dark2") +
-  # viridis::scale_colour_viridis(discrete = TRUE) +
-  ggsidekick::theme_sleek() +
-  labs(colour = "Burn severity index") +
-  xlab("Proportion burned threshold") + ylab("AUC") + 
-  theme(legend.position = c(0.905, 0.23)) +
-  scale_y_continuous(breaks = seq(0.8, 0.95, 0.05)) +
-  theme(strip.text = element_text(size = rel(0.87))) +
-  coord_cartesian(xlim = c(0, 0.99), expand = 0)
-ggsave("figs/fig2-cv.pdf", width = 8.2, height = 2.5)
+## aucs_cv %>% filter(x %in% c("dNBR_BL", "RBR_BL", "RdNBR_BL")) %>%
+##   mutate(x = gsub("_BL", "", x)) %>%
+##   left_join(var_names, by = "y") %>%
+##   ggplot(aes(thresh, auc, colour = x)) +
+##   geom_line(lwd = 1) +
+##   facet_wrap(~new.names, scales = "fixed", nrow = 1) +
+##   scale_color_brewer(palette = "Dark2") +
+##   # viridis::scale_colour_viridis(discrete = TRUE) +
+##   ggsidekick::theme_sleek() +
+##   labs(colour = "Burn severity index") +
+##   xlab("Proportion burned threshold") + ylab("AUC") +
+##   theme(legend.position = c(0.905, 0.23)) +
+##   scale_y_continuous(breaks = seq(0.8, 0.95, 0.05)) +
+##   theme(strip.text = element_text(size = rel(0.87))) +
+##   coord_cartesian(xlim = c(0, 0.99), expand = 0)
+## ggsave("figs/fig2-cv.pdf", width = 8.2, height = 2.5)
 ```
 
 # Question 2: can we improve with easily available GIS data?
@@ -435,23 +418,23 @@ dev.off()
 Examples:
 
 ```{r}
-# plot_interaction(out_q2[[1]], int_var = "lat", int_lab = "\nlatitude",
-#   xlab = vars$x[[1]], col = cols, quant = quants, title = vars$y[[1]], type = "zoib")
-# 
-# plot_interaction(out_q2[[1]], int_var = "slope", int_lab = "\nslope",
-#   xlab = vars$x[[1]], col = cols, quant = quants, title = vars$y[[1]], type = "zoib")
-# 
-# plot_interaction(out_q2[[2]], int_var = "lat", int_lab = "\nlatitude",
-#   xlab = vars$x[[2]], col = cols, quant = quants, title = vars$y[[2]], type = "zoib")
-# 
-# plot_interaction(out_q2[[3]], int_var = "prenbr", int_lab = "\npre NBR",
-#   xlab = vars$x[[3]], col = cols, quant = quants, title = vars$y[[3]], type = "zoib")
-# 
-# plot_interaction(out_q2[[4]], int_var = "lat", int_lab = "\nlatitude",
-#   xlab = vars$x[[4]], col = cols, quant = quants, title = vars$y[[4]], type = "zoib")
-# 
-# plot_interaction(out_q2[[5]], int_var = "heatload", int_lab = "\nheatload",
-#   xlab = vars$x[[5]], col = cols, quant = quants, title = vars$y[[5]], type = "zoib")
+## plot_interaction(out_q2[[1]], int_var = "lat", int_lab = "\nlatitude",
+##   xlab = vars$x[[1]], col = cols, quant = quants, title = vars$y[[1]], type = "zoib")
+##
+## plot_interaction(out_q2[[1]], int_var = "slope", int_lab = "\nslope",
+##   xlab = vars$x[[1]], col = cols, quant = quants, title = vars$y[[1]], type = "zoib")
+##
+## plot_interaction(out_q2[[2]], int_var = "lat", int_lab = "\nlatitude",
+##   xlab = vars$x[[2]], col = cols, quant = quants, title = vars$y[[2]], type = "zoib")
+##
+## plot_interaction(out_q2[[3]], int_var = "prenbr", int_lab = "\npre NBR",
+##   xlab = vars$x[[3]], col = cols, quant = quants, title = vars$y[[3]], type = "zoib")
+##
+## plot_interaction(out_q2[[4]], int_var = "lat", int_lab = "\nlatitude",
+##   xlab = vars$x[[4]], col = cols, quant = quants, title = vars$y[[4]], type = "zoib")
+##
+## plot_interaction(out_q2[[5]], int_var = "heatload", int_lab = "\nheatload",
+##   xlab = vars$x[[5]], col = cols, quant = quants, title = vars$y[[5]], type = "zoib")
 ```
 
 All:
@@ -469,10 +452,10 @@ k <- 0
 for (j in response_j) {
   for (i in vars_i) {
     k <- k + 1
-    q2_inter_plots[[k]] <- 
-      plot_interaction(out_q2[[j]], int_var = inter_vars[i], int_lab = paste0("\n", inter_vars_long[i]), 
-      xlab = gsub("_BL", "", x_vars[[1]]), col = cols, quant = quants, 
-        title = var_names$new.names[var_names$y == vars$y[[j]]], 
+    q2_inter_plots[[k]] <-
+      plot_interaction(out_q2[[j]], int_var = inter_vars[i], int_lab = paste0("\n", inter_vars_long[i]),
+      xlab = gsub("_BL", "", x_vars[[1]]), col = cols, quant = quants,
+        title = var_names$new.names[var_names$y == vars$y[[j]]],
         type = "zoib")
   }
 }
@@ -494,14 +477,14 @@ k <- 0
 for (j in response_j) {
   for (i in vars_i) {
     k <- k + 1
-    q2_inter_plots[[k]] <- 
-      plot_interaction(out_q2[[j]], int_var = inter_vars[i], 
-        int_lab = paste0("\n", inter_vars_long[i]), 
-      xlab = gsub("_BL", "", "RdNBR_BL"), col = cols, quant = quants, 
-        title = var_names$new.names[var_names$y == vars$y[[j]]], 
+    q2_inter_plots[[k]] <-
+      plot_interaction(out_q2[[j]], int_var = inter_vars[i],
+        int_lab = paste0("\n", inter_vars_long[i]),
+      xlab = gsub("_BL", "", "RdNBR_BL"), col = cols, quant = quants,
+        title = var_names$new.names[var_names$y == vars$y[[j]]],
         type = "zoib", return_data = TRUE)
     q2_inter_plots[[k]]$interaction <- inter_vars_long[i]
-    q2_inter_plots[[k]]$response <- 
+    q2_inter_plots[[k]]$response <-
       var_names$new.names[var_names$y == vars$y[[j]]]
   }
 }
@@ -511,7 +494,7 @@ q2_inter_plots_df$level <- as.factor(q2_inter_plots_df$level)
 lets <- expand.grid(
   response = factor(response_order, levels = response_order),
   interaction = factor(inter_vars_long, levels = sort(inter_vars_long))) %>%
-  arrange(interaction, response) %>% 
+  arrange(interaction, response) %>%
   mutate(panel = paste0("(", letters[seq_len(n())], ")"))
 
 g <- ggplot(q2_inter_plots_df, aes(x, est, ymin = lwr, ymax = upr, group = level,
@@ -527,8 +510,8 @@ g <- ggplot(q2_inter_plots_df, aes(x, est, ymin = lwr, ymax = upr, group = level
   scale_fill_manual(values = cols, guide = guide_legend(reverse = TRUE)) +
   scale_y_continuous(breaks = c(seq(0, 0.8, 0.2)), limits = c(0, 1)) +
   coord_cartesian(expand = FALSE) +
-  theme(legend.justification = c(1, 0), legend.position = c(0.2, 0.8), 
-    panel.spacing = unit(-0.05, "lines"), 
+  theme(legend.justification = c(1, 0), legend.position = c(0.2, 0.8),
+    panel.spacing = unit(-0.05, "lines"),
     legend.title = element_text(size = rel(0.8))) +
   xlab("RdNBR") +
   geom_text(data = lets, aes(label = panel), x = -100, y = 0.9,
@@ -545,7 +528,7 @@ Get AUC values:
 # aucs_q2 <- plyr::ldply(out_q2, function(x) {
 #   predictions <- make_predictions_dat(model = x$m$model, f = x$m$f, d = x$d)
 #   aucs_i <- make_roc(d = x$d, predictions = predictions, return_plot = FALSE)
-#   looic <- tryCatch({get_loo(x$m$model)}, error = function(e) NA )  
+#   looic <- tryCatch({get_loo(x$m$model)}, error = function(e) NA )
 #   b <- broom::tidyMCMC(x$m$model, rhat = TRUE, ess = TRUE)
 #   data.frame(x = x$x, y = x$y,
 #     auc_mean = mean(aucs_i), auc_lwr = min(aucs_i), auc_upr = max(aucs_i),
@@ -557,22 +540,26 @@ Get AUC values:
 aucs_q2 <- plyr::ldply(out_q2, function(x) {
   predictions <- make_predictions_dat(model = x$m$model, f = x$m$f, d = x$d)
   aucs_i <- make_roc(d = x$d, predictions = predictions, return_plot = FALSE, thresh = thresholds)
-  looic <- tryCatch({get_loo(x$m$model)}, error = function(e) NA )  
+  looic <- tryCatch({get_loo(x$m$model)}, error = function(e) NA )
   b <- broom::tidyMCMC(x$m$model, rhat = TRUE, ess = TRUE)
   data.frame(x = x$x, y = x$y,
     auc = aucs_i,
     thresh = thresholds,
     auc_mean = mean(aucs_i), auc_lwr = min(aucs_i), auc_upr = max(aucs_i),
     looic = looic, ess = min(b$ess), rhat = max(b$rhat), stringsAsFactors = FALSE)
-}, .parallel = TRUE)
+}, .parallel = FALSE)
 ```
 
 
 Check LOOIC:
 
 ```{r}
-semi_join(aucs_q1, select(aucs_q2, x, y)) %>% arrange(x, y)
-aucs_q2 %>% arrange(x, y)
+semi_join(aucs_q1, select(aucs_q2, x, y)) %>% arrange(x, y) %>%
+  select(x, y, looic, ess, rhat) %>%
+  unique()
+aucs_q2 %>% arrange(x, y) %>%
+  select(x, y, looic, ess, rhat) %>%
+  unique()
 ```
 
 A possible type of plot looking at the increase in the range of AUC. Might be better done for a cross validation set. This is currently done on the full data set. Alternatively could do something with LOOIC (which is analogous to AIC).
@@ -580,13 +567,13 @@ A possible type of plot looking at the increase in the range of AUC. Might be be
 ```{r}
 # aucs_q1$q <- "q1"
 # aucs_q2$q <- "q2"
-# temp <- bind_rows(semi_join(aucs_q1, select(aucs_q2, x, y)), aucs_q2) %>% 
+# temp <- bind_rows(semi_join(aucs_q1, select(aucs_q2, x, y)), aucs_q2) %>%
 #   filter(rhat < 1.2, ess > 15) %>% # TODO increase!
-#   mutate(y = as.factor(y)) %>% 
+#   mutate(y = as.factor(y)) %>%
 #   mutate(y_val = ifelse(q == "q1", as.numeric(y) - 0.1, as.numeric(y) + 0.1))
-# labs <- select(temp, y) %>% mutate(y_val = as.numeric(y)) %>% unique() %>% 
+# labs <- select(temp, y) %>% mutate(y_val = as.numeric(y)) %>% unique() %>%
 #   arrange(y_val)
-# ggplot(temp, aes(y_val, auc_mean, colour = q)) + 
+# ggplot(temp, aes(y_val, auc_mean, colour = q)) +
 #   geom_point(position = position_dodge(width = 0.1)) +
 #   coord_flip() +
 #   geom_segment(aes(y = auc_lwr, yend = auc_upr, x = y_val, xend = y_val)) +
@@ -599,7 +586,7 @@ A possible type of plot looking at the increase in the range of AUC. Might be be
 
 Just for `Firemort.BA.p` this time. Will come back to this and repeat over all responses.
 
-Because the quadratic mean diameter predictors are not available for the 0s (not burned at all) we will have to use a "OIB" one-inflated-beta GLMM. Here I am including all of the interactions in a single model. Alternatively, we could do each individually. Note that each predictor has been scaled by dividing by 2 SDs and subtracting its mean. This puts them on approximately the same scale. 
+Because the quadratic mean diameter predictors are not available for the 0s (not burned at all) we will have to use a "OIB" one-inflated-beta GLMM. Here I am including all of the interactions in a single model. Alternatively, we could do each individually. Note that each predictor has been scaled by dividing by 2 SDs and subtracting its mean. This puts them on approximately the same scale.
 
 ```{r q3-fit, cache=TRUE}
 sm <- stan_model("zoib1re.stan")
@@ -629,7 +616,7 @@ out_q3 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without paralle
     file = file,
     max_predictor = 2500)
   dd <- filter(d, !is.na(qmd_all))
-  m <- fit_model_oib(dd, sm_oib, predictors = x_vars, iter = 1000, 
+  m <- fit_model_oib(dd, sm_oib, predictors = x_vars, iter = 1000,
     chains = 4)
   list(m = m, d = dd, x = x, y = y)
 }, .parallel = TRUE)
@@ -655,17 +642,17 @@ Examples:
 cols <- viridis::plasma(3, end = 0.85) %>% rev()
 quants <- c(0.05, 0.5, 0.95)
 
-# 
-# plot_interaction(out_q3[[2]], int_var = "redgraygreenstage_ba_p", 
+#
+# plot_interaction(out_q3[[2]], int_var = "redgraygreenstage_ba_p",
 #   int_lab = "\nRGGStg BA", xlab = vars$x[[2]], col = cols, quant = quants, title = vars$y[[2]], type = "oib")
-# 
-# plot_interaction(out_q3[[3]], int_var = "ba_ha", int_lab = "\nBA", 
+#
+# plot_interaction(out_q3[[3]], int_var = "ba_ha", int_lab = "\nBA",
 #   xlab = vars$x[[3]], col = cols, quant = quants, title = vars$y[[3]], type = "oib")
-# 
-# plot_interaction(out_q3[[4]], int_var = "ba_ha", int_lab = "\nBA", 
+#
+# plot_interaction(out_q3[[4]], int_var = "ba_ha", int_lab = "\nBA",
 #   xlab = vars$x[[4]], col = cols, quant = quants, title = vars$y[[4]], type = "oib")
-# 
-# plot_interaction(out_q3[[5]], int_var = "ba_ha", int_lab = "\nBA", 
+#
+# plot_interaction(out_q3[[5]], int_var = "ba_ha", int_lab = "\nBA",
 #   xlab = vars$x[[5]], col = cols, quant = quants, title = vars$y[[5]], type = "oib")
 ```
 
@@ -673,7 +660,7 @@ All:
 
 ```{r}
 inter_vars <- c("qmd_all", "ba_ha", "stems_ha", "redgraygreenstage_ba_p")
-inter_vars_long <- c("QMD", "Stand\nbasal area", "Stand density", 
+inter_vars_long <- c("QMD", "Stand\nbasal area", "Stand density",
   "Pre-fire beetle\noutbreak severity")
 vars_i <- seq_along(inter_vars)
 response_j <- seq_along(out_q3)
@@ -682,11 +669,11 @@ k <- 0
 for (j in response_j) {
   for (i in vars_i) {
     k <- k + 1
-    q3_inter_plots[[k]] <- 
-      plot_interaction(out_q3[[j]], int_var = inter_vars[i], 
-        int_lab = paste0("\n", inter_vars_long[i]), 
-      xlab = gsub("_BL", "", "RdNBR_BL"), col = cols, quant = quants, 
-        title = var_names$new.names[var_names$y == vars$y[[j]]], 
+    q3_inter_plots[[k]] <-
+      plot_interaction(out_q3[[j]], int_var = inter_vars[i],
+        int_lab = paste0("\n", inter_vars_long[i]),
+      xlab = gsub("_BL", "", "RdNBR_BL"), col = cols, quant = quants,
+        title = var_names$new.names[var_names$y == vars$y[[j]]],
         type = "oib", return_data = TRUE)
     q3_inter_plots[[k]]$interaction <- inter_vars_long[i]
     q3_inter_plots[[k]]$response <- var_names$new.names[var_names$y == vars$y[[j]]]
@@ -695,17 +682,17 @@ for (j in response_j) {
 q3_inter_plots_df <- bind_rows(q3_inter_plots)
 q3_inter_plots_df$level <- as.factor(q3_inter_plots_df$level)
 
-dd <- get_dat(response = "Firemort.BA.p", 
+dd <- get_dat(response = "Firemort.BA.p",
   main_predictor = "RdNBR_BL", file = file)
 
 lets <- expand.grid(
   response = factor(response_order, levels = response_order),
   interaction = factor(inter_vars_long, levels = sort(inter_vars_long))) %>%
-  arrange(interaction, response) %>% 
+  arrange(interaction, response) %>%
   mutate(panel = paste0("(", letters[seq_len(n())], ")"))
 
 xlim_range <- range(dd$x)
-g <- ggplot(q3_inter_plots_df, aes(x, est, ymin = lwr, ymax = upr, 
+g <- ggplot(q3_inter_plots_df, aes(x, est, ymin = lwr, ymax = upr,
   group = level, fill = level)) +
   geom_line(lwd = 1.2, aes(colour = level)) +
   geom_ribbon(alpha = 0.25) +
@@ -718,15 +705,15 @@ g <- ggplot(q3_inter_plots_df, aes(x, est, ymin = lwr, ymax = upr,
   scale_fill_manual(values = cols, guide = guide_legend(reverse = TRUE)) +
   scale_y_continuous(breaks = c(seq(0, 0.8, 0.2)), limits = c(0, 1)) +
   coord_cartesian(expand = FALSE) +
-  theme(legend.justification = c(1, 0), legend.position = c(0.2, 0.8), 
-    panel.spacing = unit(-0.05, "lines"), 
+  theme(legend.justification = c(1, 0), legend.position = c(0.2, 0.8),
+    panel.spacing = unit(-0.05, "lines"),
     legend.title = element_text(size = rel(0.8))) +
   xlab("RdNBR") +
   xlim(xlim_range) +
   geom_text(data = lets, aes(label = panel), x = -100, y = 0.9,
     inherit.aes = FALSE, col = "grey30")
 
-png("figs/q3-interaction-ribbons.png", width = 8, height = 5.5, 
+png("figs/q3-interaction-ribbons.png", width = 8, height = 5.5,
   units = "in", res = 200)
 print(g)
 dev.off()
@@ -737,26 +724,26 @@ dev.off()
 ```{r}
 aucs_q1$Q <- "Q1"
 aucs_q2$Q <- "Q2"
-aucs <- bind_rows(aucs_q1, aucs_q2) %>% 
+aucs <- bind_rows(aucs_q1, aucs_q2) %>%
   filter(x == "RdNBR_BL")
 
 lets <- data.frame(new.names = response_order,
-  panel = 
+  panel =
     paste0("(", letters[seq_along(response_order)], ")"),
   stringsAsFactors = FALSE)
 
 aucs %>%
-  mutate(x = gsub("_BL", "", x)) %>% 
-  left_join(var_names, by = "y") %>% 
+  mutate(x = gsub("_BL", "", x)) %>%
+  left_join(var_names, by = "y") %>%
   ggplot(aes(thresh, auc, colour = Q)) +
-  geom_line(lwd = 1.0) + 
-  facet_wrap(~factor(new.names, levels = response_order), 
+  geom_line(lwd = 1.0) +
+  facet_wrap(~factor(new.names, levels = response_order),
     scales = "fixed", nrow = 1) +
   scale_color_brewer(palette = "Set1") +
   ggsidekick::theme_sleek() +
   theme_sleek() +
   labs(colour = "Covariates") +
-  xlab("Proportion threshold") + ylab("AUC") + 
+  xlab("Proportion threshold") + ylab("AUC") +
   theme(legend.position = c(0.07, 0.26)) +
   scale_y_continuous(breaks = seq(0.8, 0.95, 0.05)) +
   theme(strip.text = element_text(size = rel(0.87))) +
