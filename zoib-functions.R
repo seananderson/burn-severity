@@ -1,5 +1,6 @@
 get_dat <- function(response, main_predictor,
   file = "RockiesBurnSev_clean_20180216.csv",
+  scale_other_predictors = TRUE,
   max_predictor = 2500) {
 
   response <- enquo(response)
@@ -31,10 +32,12 @@ get_dat <- function(response, main_predictor,
   names(d) <- tolower(names(d))
   names(d) <- gsub("\\.", "_", names(d))
 
-  d <- dplyr::mutate_at(d,
-    c("lat",  "heatload",  "slope", "prenbr", "qmd_laf", "qmd_all",
-      "ba_ha", "stems_ha", "redgraygreenstage_ba_p"),
-    function(x) arm::rescale(x))
+  if (scale_other_predictors) {
+    d <- dplyr::mutate_at(d,
+      c("lat",  "heatload",  "slope", "prenbr", "qmd_laf", "qmd_all",
+        "ba_ha", "stems_ha", "redgraygreenstage_ba_p"),
+      function(x) arm::rescale(x))
+  }
   d
 }
 
@@ -80,13 +83,16 @@ prep_stan_dat_oib <- function(d, predictors = "xscaled") {
   list(stan_dat = sd, f = fp)
 }
 
-prep_stan_dat <- function(d, predictors = "xscaled") {
+prep_stan_dat <- function(d, predictors = "xscaled", arrange_by_group = TRUE) {
 
   # in case some missing now (e.g. cross-validation):
   d <- d %>% mutate(
       group = as.factor(as.character(group)),
-      group_id = as.integer(group)) %>%
-    arrange(group_id, x)
+      group_id = as.integer(group))
+
+  if (arrange_by_group) {
+   d <- d %>% arrange(group_id, x)
+  }
   d1 <- filter(d, !is.na(y1))
   dp <- filter(d, !is.na(yp))
 
@@ -120,6 +126,16 @@ prep_stan_dat <- function(d, predictors = "xscaled") {
     group_idp = dp$group_id)
 
   list(stan_dat = sd, f = fp)
+}
+
+log_sum_exp <- function(u) {
+  max_u <- max(u)
+  max_u + log(sum(exp(u - max_u)))
+}
+# and then include the −logM term to make it log_mean_exp:
+log_mean_exp <- function(u) {
+  M <- length(u)
+  -log(M) + log_sum_exp(u)
 }
 
 fit_model <- function(d, model, predictors = "xscaled", iter = 800L, chains = 4L,
@@ -456,3 +472,46 @@ plot_interaction <- function(obj, int_var, int_lab, xlab, quant = c(0.1, 0.9),
     return(as_tibble(p))
   }
 }
+
+#
+# zoib_lpd <- function() {
+#   e <- rstan::extract(x$m$model)
+#   mm_pred <- cbind(rep(1, nrow(pred_dat)), pred_dat$xscaled)
+#   re_id <- x$d[x$d$group == "rr", "group_id", drop = TRUE][[1]]
+#   mu_inv_logit <- plogis(mm_pred %*% t(e$bp_j) +
+#     rep(e$zp_g[,re_id,drop=TRUE], each = nrow(mm_pred)))
+#   phi <- e$phi
+#   nmcmc <- ncol(mu_inv_logit)
+#   # # add obs. error:
+#   # pred_p <- t(apply(mu_inv_logit, 1, function(.x) {
+#   #   rbeta(n = nmcmc,
+#   #   shape1 = .x * phi,
+#   #   shape2 = (1 - .x) * phi)
+#   # }))
+#   pred_0 <- plogis(mm_pred %*% t(e$b0_j) +
+#       rep(e$z0_g[,re_id,drop=TRUE], each = nrow(mm_pred)))
+#   pred_1 <- plogis(mm_pred %*% t(e$b1_j) +
+#       rep(e$z1_g[,re_id,drop=TRUE], each = nrow(mm_pred)))
+#
+#   y_pred <- (1 - pred_0) * (pred_1 + (1 - pred_1) * pred_p)
+#
+#   pred_df <- data.frame(
+#     pp_est = apply(pred_p, 1, quantile, probs = 0.5),
+#     p0_est = apply(pred_0, 1, quantile, probs = 0.5),
+#     p1_est = apply(pred_1, 1, quantile, probs = 0.5),
+#     q0.05 = apply(y_pred, 1, quantile, probs = 0.05),
+#     q0.50 = apply(y_pred, 1, quantile, probs = 0.5),
+#     q0.95 = apply(y_pred, 1, quantile, probs = 0.95),
+#     sd     = apply(y_pred, 1, sd),
+#     mean   = apply(y_pred, 1, mean)
+#   )
+#   pred_df <- mutate(pred_df, ci_width_90 = q0.95 - q0.05)
+#
+#   stopifnot(nrow(pred_df) == nrow(pred_dat))
+#   pred_df$x <- pred_dat$x
+#   pred_df$y <- pred_dat$y
+#   pred_df$RdNBR_BL <- pred_dat$RdNBR_BL
+#   pred_df$response <- x$y
+#   pred_df$predictor <- x$x
+#   pred_df
+# })

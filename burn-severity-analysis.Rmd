@@ -395,7 +395,7 @@ out_q2 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without paralle
   d <- get_dat(!!quo_name(y), !!quo_name(x),
     file = file,
     max_predictor = 2500)
-  d <- d[!is.na(d$prenbr), , drop = FALSE] # 1 row TODO
+  d <- d[!is.na(d$prenbr), , drop = FALSE]
   m <- fit_model(d, model = sm,
     predictors = c("xscaled", extra_x_vars),
     iter = 1000L, chains = 4L)
@@ -404,7 +404,12 @@ out_q2 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without paralle
 ```
 
 ```{r, fig.height=9, fig.width=10}
-p_q2 <- lapply(out_q2, function(x) plot_zoib_coefs(x, oib = FALSE))
+out_q2_plot <- out_q2
+for (i in seq_along(out_q2_plot)) {
+  out_q2_plot[[i]]$y <- var_names$new.names[var_names$y == out_q2_plot[[i]]$y]
+}
+
+p_q2 <- lapply(out_q2_plot, function(x) plot_zoib_coefs(x, oib = FALSE))
 library(gridExtra)
 n <- length(p_q2)
 nCol <- floor(sqrt(n))
@@ -625,7 +630,23 @@ out_q3 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without paralle
 Let's plot out the main effect coefficients and the interaction coefficients. This takes a little bit of data manipulation first. The dots are medians, the thick lines are 50% credible intervals, and the thin lines are 95% credible intervals.
 
 ```{r plot-interactions, cache=TRUE, fig.height=9, fig.width=10}
-p_q3 <- lapply(out_q3, function(x) plot_zoib_coefs(x, oib = TRUE))
+out_q3_plot <- out_q3
+# var_names$clean_orig <- gsub("\\.", "_", var_names$y)
+# var_names$clean_orig <- tolower(var_names$clean)
+
+
+for (i in seq_along(out_q3_plot)) {
+  out_q3_plot[[i]]$y <- var_names$new.names[var_names$y == out_q3_plot[[i]]$y]
+  #   names(out_q3_plot[[i]]$m$stan_dat$Xp_ij)[j] <- var_names$new.names[var_names$y == names(out_q3_plot[[i]]$m$stan_dat$Xp_ij)[j]]
+  # }
+  # for (j in seq_along(var_names$y)) {
+  #   colnames(out_q3_plot[[i]]$m$stan_dat$Xp_ij) <- 
+  #     stringr::str_replace(colnames(out_q3_plot[[i]]$m$stan_dat$Xp_ij), var_names$y[j], var_names$new.names[j])
+  # }
+}
+
+
+p_q3 <- lapply(out_q3_plot, function(x) plot_zoib_coefs(x, oib = TRUE))
 library(gridExtra)
 n <- length(p_q3)
 nCol <- floor(sqrt(n))

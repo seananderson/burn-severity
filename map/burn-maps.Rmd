@@ -22,6 +22,7 @@ knitr::opts_chunk$set(
 ```
 
 ```{r process}
+# see RedRock_FireSeverity_prediction_v2.R
 # # importing RdNBR
 # RdNBR <- raster::raster("RedRockFire_Indices/RR_RdNBR.tif")
 # # importing shapefile for fire perimeter
@@ -49,6 +50,10 @@ knitr::opts_chunk$set(
 # readr::write_rds(data, "RedRocks_coords_RdNBR_BL.rds")
 ```
 
+```{r check}
+# ggplot(filter(data, RdNBR_BL < 2500), aes(x, y, fill = RdNBR_BL)) + geom_raster()
+```
+
 ```{r fit, results='hide'}
 # data <- readr::read_rds("RedRocks_coords_RdNBR_BL.rds")
 data <- readr::read_csv("RedRocks_data_Fig6.csv")
@@ -57,21 +62,22 @@ library(rstan)
 library(readr)
 options(mc.cores = parallel::detectCores())
 source("../zoib-functions.R")
-sm <- stan_model("../zoib1re.stan")
+rstan_options(auto_write = TRUE)
+sm <- rstan::stan_model("../zoib1re.stan")
 file <- file.path("..", "data", "RockiesBurnSev_clean_20180216.csv")
 
 x_vars <- c(
   "RdNBR_BL"
 )
 y_vars <- c(
-  "Firemort.BA.p",
-  "CHARCOV")
+  "CHARCOV",
+  "Firemort.BA.p")
 vars <- expand.grid(x = x_vars, y = y_vars, stringsAsFactors = FALSE)
 out <- plyr::mlply(.data = vars, function(x, y) {
   d <- get_dat(!!quo_name(y), !!quo_name(x),
     file = file, max_predictor = 2500)
-  m <- fit_model(d, model = sm, predictors = "xscaled", iter = 1000L,
-    chains = 4L)
+  m <- fit_model(d, model = sm, predictors = "xscaled", iter = 100L,
+    chains = 1L)
   list(m = m, d = d, x = x, y = y)
 })
 ```
@@ -84,6 +90,7 @@ xx <- purrr::map_df(out, function(x) {
   pred_dat <- pred_dat[pred_dat$RdNBR_BL > min(x$d$x)*1, , drop = FALSE]
   pred_dat$xscaled <- (pred_dat$RdNBR_BL - x$d$xraw_mean[[1]]) / (2 * x$d$xraw_sd[[1]])
   e <- rstan::extract(x$m$model)
+  
   mm_pred <- cbind(rep(1, nrow(pred_dat)), pred_dat$xscaled)
   re_id <- x$d[x$d$group == "rr", "group_id", drop = TRUE][[1]]
   # pred_p <- plogis(mm_pred %*% t(e$bp_j) +
