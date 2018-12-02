@@ -51,18 +51,19 @@ knitr::opts_chunk$set(
 ```
 
 ```{r fit, results='hide'}
+library(here)
+source(here("zoib-functions.R"))
 # data <- readr::read_rds("RedRocks_coords_RdNBR_BL.rds")
-data <- readr::read_csv("RedRocks_data_Fig6.csv")
+data <- readr::read_csv(here("map/RedRocks_data_Fig6.csv"))
 names(data) <- gsub("\\.", "", names(data))
 library(dplyr)
 library(rstan)
 library(readr)
 data <- rename(data, slope = Slope, prenbr = preNBR)
 options(mc.cores = parallel::detectCores())
-source("../zoib-functions.R")
 rstan_options(auto_write = TRUE)
-sm <- rstan::stan_model("../zoib1re.stan")
-file <- file.path("..", "data", "RockiesBurnSev_clean_20180216.csv")
+sm <- rstan::stan_model(here("zoib1re.stan"))
+file <- here("data", "RockiesBurnSev_clean_20180216.csv")
 
 x_vars <- c(
   "RdNBR_BL"
@@ -81,7 +82,7 @@ out_q2 <- plyr::mlply(.data = vars, function(x, y) {
   m <- fit_model(d, model = sm,
     # predictors = c("xscaled"),
     predictors = c("xscaled", extra_x_vars),
-    iter = 1000L, chains = 4L)
+    iter = 2000L, chains = 4L, adapt_delta = 0.98, seed = 42)
   list(m = m, d = d, x = x, y = y)
 })
 ```
@@ -124,11 +125,6 @@ xx <- purrr::map_df(out_q2, function(x) {
   pred_dat$slope <- match_scale(pred_dat, orig_dat, "slope")
   pred_dat$prenbr <- match_scale(pred_dat, orig_dat, "prenbr")
   
-  # hist(pred_dat$lat)
-  # hist(pred_dat$heatload)
-  # hist(pred_dat$slope)
-  # hist(pred_dat$prenbr)
-  
   pred_dat$response <- 999 # fake
   e <- rstan::extract(x$m$model)
   prep_dat <- mutate(pred_dat, group = 999, # rake
@@ -137,7 +133,6 @@ xx <- purrr::map_df(out_q2, function(x) {
     yp = 0.5 # fake
   ) %>% 
     prep_stan_dat(predictors = c("xscaled", extra_x_vars), arrange_by_group = FALSE)
-    # prep_stan_dat(predictors = c("xscaled"))
   
   mm_pred <- prep_dat$stan_dat$Xp_ij # pick any one; all the same
   re_id <- x$d[x$d$group == "rr", "group_id", drop = TRUE][[1]]
@@ -177,7 +172,7 @@ xx <- purrr::map_df(out_q2, function(x) {
   pred_df$predictor <- x$x
   pred_df
 })
-readr::write_rds(xx, "RedRocks_predictions_Q2.rds")
+readr::write_rds(xx, here("map/RedRocks_predictions_Q2.rds"))
 ```
 
 ```{r plot, fig.cap="The predictor"}
@@ -291,7 +286,7 @@ fig <- select(xx, x, y, response, q0.05, q0.50, q0.95) %>%
 g <- cowplot::plot_grid(predictor_plot, fig, ncol = 1, rel_heights = c(1.03, 2.5),
   align = "v", axis = "l")
 
-ggsave("map-cred2-Q2.png", width = 3.9, height = 7.9, dpi = 220)
+ggsave(here("map/map-cred2-Q2.png"), width = 3.9, height = 7.9, dpi = 220)
 
 # library(colorblindr)
 # pdf("cb.pdf", width = 10, height = 10)
@@ -343,7 +338,7 @@ select(xx, x, y, response, pp_est, p0_est, p1_est, q0.50) %>%
   guides(fill = guide_colourbar(barwidth = 0.8, barheight = 3.1)) +
   geom_text(data = lets2, aes(label = panel, x = x, y = y), 
     inherit.aes = FALSE, col = "grey30")
-ggsave("map-components-Q2.png", width = 4, height = 7.5, dpi = 200)
+ggsave(here("map/map-components-Q2.png"), width = 4, height = 7.5, dpi = 200)
 ```
 
 
@@ -404,8 +399,8 @@ ggsave("map-components-Q2.png", width = 4, height = 7.5, dpi = 200)
 
 
 ```{r}
-q2 <- readr::read_rds("RedRocks_predictions_Q2.rds")
-q1 <- readr::read_rds("RedRocks_predictions.rds")
+q2 <- readr::read_rds(here("map/RedRocks_predictions_Q2.rds"))
+q1 <- readr::read_rds(here("map/RedRocks_predictions.rds"))
 
 q2 <- mutate(q2, version = "Q2") %>%
   rename(est_q2 = q0.50)
@@ -429,12 +424,20 @@ lets3 <- data.frame(
   y = unique(lets$y),
   stringsAsFactors = FALSE)
 
+fourth_root_power_trans <- function() {
+  scales::trans_new(
+    name = "fourth root power",
+    transform = function(x) ifelse(x > 0, x^0.25, -(-x)^0.25),
+    inverse = function(x) ifelse(x > 0, x^4, -(-x)^4),
+    domain = c(Inf, Inf))
+}
+
 g_diff <- diff_dat %>% 
   mutate(kind = "Difference (Q2 - Q1)") %>% 
    mutate(response = gsub("Firemort.BA.p", "Basal area killed by fire", response)) %>% 
   mutate(response = gsub("CHARCOV", "Charred surface cover", response)) %>%
   ggplot(aes(x, y, fill = diff_50_p)) + geom_raster() +
-  scale_fill_gradient2() +
+  scale_fill_gradient2(trans = "fourth_root_power", breaks = c(-0.2, -0.02, 0, 0.02, 0.2)) +
   coord_fixed() +
   xlab("") + 
   ylab("") +
@@ -456,7 +459,6 @@ g_diff <- diff_dat %>%
 gg <- cowplot::plot_grid(predictor_plot, fig, g_diff, ncol = 1, rel_heights = c(1.03, 2.5, 1.03),
   align = "v", axis = "l")
 
-ggsave("map-cred2-Q2-diff.png", width = 4, height = 9, dpi = 220)
-
+ggsave(here("map/map-cred2-Q2-diff.png"), width = 4, height = 9, dpi = 220)
 ```
 
