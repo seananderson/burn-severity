@@ -220,7 +220,9 @@ dat_q1_raw$new.names <- factor(dat_q1_raw$response, levels = response_order)
 lets <- data.frame(new.names = response_order,
   panel =
     paste0("(", letters[5 + seq_along(response_order)], ")"),
-  stringsAsFactors = FALSE)
+  stringsAsFactors = TRUE)
+
+lets$new.names <- factor(lets$new.names, levels = response_order)
 
 lower_panel <- ggplot(
   filter(dat_q1_pred, predictor == "RdNBR_BL"),
