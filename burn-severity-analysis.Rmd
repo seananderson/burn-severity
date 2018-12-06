@@ -213,11 +213,13 @@ dat_q1_raw <-
   }, .parallel = TRUE)
 
 dat_q1_pred$response <- factor(dat_q1_pred$response, levels = response_order)
+dat_q1_pred$new.names <- factor(dat_q1_pred$response, levels = response_order)
+dat_q1_raw$response <- factor(dat_q1_raw$response, levels = response_order)
+dat_q1_raw$new.names <- factor(dat_q1_raw$response, levels = response_order)
 
 lets <- data.frame(new.names = response_order,
   panel =
     paste0("(", letters[5 + seq_along(response_order)], ")"),
-  response = unique(dat_q1_pred$response),
   stringsAsFactors = FALSE)
 
 lower_panel <- ggplot(
@@ -237,14 +239,15 @@ lower_panel <- ggplot(
     ylab("Proportion") +
     xlab("Predictor value") +
     labs(colour = "Fire location") +
-  facet_wrap(~response, nrow = 1) +
+  facet_wrap(~new.names, scales = "fixed", nrow = 1) +
+  # facet_wrap(~response, nrow = 1) +
   coord_cartesian(expand = FALSE, ylim = c(-0.03, 1.03)) +
   theme(strip.text = element_text(size = rel(0.87))) +
   geom_text(data = lets, aes(label = panel), x = -100, y = 0.96,
     inherit.aes = FALSE, col = "grey30")
 
 cowplot::plot_grid(upper_panel, lower_panel, nrow = 2)
-ggsave("figs/fig2.png", width = 8.2, height = 4.5, dpi = 200)
+ggsave("figs/fig2.png", width = 8.2, height = 4.5, dpi = 220)
 ```
 
 Fig S1:
