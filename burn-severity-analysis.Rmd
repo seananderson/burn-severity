@@ -27,7 +27,7 @@ rstan_options(auto_write = TRUE)
 # options(mc.cores = parallel::detectCores())
 options(mc.cores = 1)
 sm <- stan_model("zoib1re.stan")
-registerDoParallel(cores = parallel::detectCores())
+registerDoParallel(cores = round(parallel::detectCores()/2))
 file <- file.path("data", "RockiesBurnSev_clean_20180216.csv")
 ```
 
@@ -169,18 +169,20 @@ ggsave("figs/roc-example.png", width = 5.5, height = 5, dpi = 200)
 ## Figure 2:
 
 ```{r}
-lets <- data.frame(new.names = response_order,
-  panel =
-    paste0("(", letters[5 + seq_along(response_order)], ")"),
-  stringsAsFactors = FALSE)
-
-lower_panel <-
-  aucs_q1 %>% filter(x %in% c("dNBR_BL", "RBR_BL", "RdNBR_BL")) %>%
+temp_dat <- aucs_q1 %>% filter(x %in% c("dNBR_BL", "RBR_BL", "RdNBR_BL")) %>%
   mutate(x = gsub("_BL", "", x)) %>%
-  left_join(var_names, by = "y") %>%
-  ggplot(aes(thresh, auc, colour = x)) +
+  left_join(var_names, by = "y") %>% 
+  mutate(new.names = factor(new.names, levels = response_order))
+
+lets <- data.frame(response = response_order,
+  panel =
+    paste0("(", letters[seq_along(response_order)], ")"),
+  stringsAsFactors = FALSE, new.names = unique(temp_dat$new.names))
+
+upper_panel <-
+  ggplot(temp_dat, aes(thresh, auc, colour = x)) +
   geom_line(lwd = 1) +
-  facet_wrap(~factor(new.names, levels = response_order),
+  facet_wrap(~new.names,
     scales = "fixed", nrow = 1) +
   scale_color_brewer(palette = "Dark2") +
   # viridis::scale_colour_viridis(discrete = TRUE) +
@@ -210,12 +212,15 @@ dat_q1_raw <-
     x$d
   }, .parallel = TRUE)
 
-lets <- data.frame(response = response_order,
+dat_q1_pred$response <- factor(dat_q1_pred$response, levels = response_order)
+
+lets <- data.frame(new.names = response_order,
   panel =
-    paste0("(", letters[seq_along(response_order)], ")"),
+    paste0("(", letters[5 + seq_along(response_order)], ")"),
+  response = unique(dat_q1_pred$response),
   stringsAsFactors = FALSE)
 
-upper_panel <- ggplot(
+lower_panel <- ggplot(
   filter(dat_q1_pred, predictor == "RdNBR_BL"),
   aes(x, est, ymin = lwr, ymax = upr)) +
     geom_point(data = filter(dat_q1_raw, predictor == "RdNBR_BL"),
@@ -232,7 +237,7 @@ upper_panel <- ggplot(
     ylab("Proportion") +
     xlab("Predictor value") +
     labs(colour = "Fire location") +
-  facet_wrap(~factor(response, levels = response_order), nrow = 1) +
+  facet_wrap(~response, nrow = 1) +
   coord_cartesian(expand = FALSE, ylim = c(-0.03, 1.03)) +
   theme(strip.text = element_text(size = rel(0.87))) +
   geom_text(data = lets, aes(label = panel), x = -100, y = 0.96,
