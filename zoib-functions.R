@@ -197,7 +197,7 @@ make_predictions_oib <- function(d, f, model, Npred = 200L, use_new_data = TRUE,
     upr = apply(y_pred, 1, quantile, probs = 0.95))
 
   if (is.null(sd_x))
-    pred_df$x <- d_pred$xscaled * 2 * sd(d$x) + mean(d$x)
+    pred_df$x <- d_pred$xscaled * 2 * unique(d$xraw_sd) + unique(d$xraw_mean)
 
   pred_df
 }
@@ -269,7 +269,7 @@ make_predictions <- function(d, f, model, Npred = 200L, use_new_data = TRUE,
     pred_df$est_re = d_pred$y_pred_re
 
   if (is.null(sd_x))
-    pred_df$x <- d_pred$xscaled * 2 * sd(d$x) + mean(d$x)
+    pred_df$x <- d_pred$xscaled * 2 * unique(d$xraw_sd) + unique(d$xraw_mean)
 
   pred_df
 }
@@ -351,7 +351,7 @@ make_roc <- function(d, predictions, return_plot = TRUE,
     return(a)
 }
 
-plot_zoib_coefs <- function(obj, oib = FALSE) {
+plot_zoib_coefs <- function(obj, oib = FALSE, newnames_df = NULL, return_df = FALSE) {
 
   m <- obj$m
   x_name <- paste0(" ", obj$x) # " " for fct order
@@ -384,10 +384,17 @@ plot_zoib_coefs <- function(obj, oib = FALSE) {
     left_join(terms, by = "num") %>%
     mutate(name = gsub("xscaled", x_name, name))
 
+  if (!is.null(newnames_df)) {
+    b <- left_join(b, newnames_df) %>%
+      mutate(new.names = ifelse(is.na(new.names), name, new.names)) %>%
+      select(-name) %>%
+      rename(name = new.names)
+  }
+
   pal <- RColorBrewer::brewer.pal(3, "Set2")
   # pal <- c(pal[4], "grey50", pal[5])
 
-  b %>%
+  ddat <- b %>%
     mutate(estimate = ifelse(model == 0,     -estimate,     estimate)) %>%
     mutate(conf.low = ifelse(model == 0,     -conf.low,     conf.low)) %>%
     mutate(conf.high = ifelse(model == 0,    -conf.high,    conf.high)) %>%
@@ -395,8 +402,14 @@ plot_zoib_coefs <- function(obj, oib = FALSE) {
     mutate(conf.low.25 = ifelse(model == 0,  -conf.low.25,  conf.low.25)) %>%
     mutate(interaction = grepl(":", name)) %>%
     inner_join(models, by = "model") %>%
-    mutate(xvar = fct_relevel(name, x_name, after = Inf)) %>%
-    ggplot(aes(y = estimate, x = xvar,
+    mutate(xvar = fct_relevel(name, x_name, after = Inf))
+
+  if (return_df) {
+    ddat$response <- obj$y
+    return(ddat)
+  }
+
+  ggplot(ddat, aes(y = estimate, x = xvar,
       colour = model_full, shape = interaction)) +
     geom_hline(yintercept = 0, lty = 2, col = "grey55") +
     geom_linerange(aes(ymin = conf.low.25, ymax = conf.high.75),

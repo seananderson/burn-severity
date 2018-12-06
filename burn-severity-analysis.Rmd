@@ -403,7 +403,7 @@ out_q2 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without paralle
   d <- d[!is.na(d$prenbr), , drop = FALSE]
   m <- fit_model(d, model = sm,
     predictors = c("xscaled", extra_x_vars),
-    iter = 1000L, chains = 4L)
+    iter = 1000L, chains = 4L, cores = 1)
   list(m = m, d = d, x = x, y = y)
 }, .parallel = TRUE)
 ```
@@ -414,15 +414,51 @@ for (i in seq_along(out_q2_plot)) {
   out_q2_plot[[i]]$y <- var_names$new.names[var_names$y == out_q2_plot[[i]]$y]
 }
 
-p_q2 <- lapply(out_q2_plot, function(x) plot_zoib_coefs(x, oib = FALSE))
-library(gridExtra)
-n <- length(p_q2)
-nCol <- floor(sqrt(n))
-do.call("grid.arrange", c(p_q2, ncol = nCol))
+newnames_df <- data.frame(
+  name = c(" RdNBR_BL", " RdNBR_BL:heatload", " RdNBR_BL:lat", 
+    " RdNBR_BL:prenbr", 
+    " RdNBR_BL:slope", "heatload", "lat", "prenbr", "slope"),
+  new.names = c(" RdNBR", " RdNBR x heat load", " RdNBR x latitude", 
+    " RdNBR x pre-fire NBR", 
+    " RdNBR x slope", "Heat load index", "Latitude", "Pre-fire NBR", "Slope"),
+  stringsAsFactors = FALSE)
 
-png("figs/q2-coefs.png", width = 9, height = 8, units = "in", res = 200)
-do.call("grid.arrange", c(p_q2, ncol = nCol))
-dev.off()
+p_q2 <- lapply(out_q2_plot, function(x) 
+  plot_zoib_coefs(x, oib = FALSE, newnames_df = newnames_df, return_df = TRUE))
+p_q2 <- bind_rows(p_q2)
+pal <- RColorBrewer::brewer.pal(3, "Set2")
+x_name <- " RdNBR"
+p_q2 <- mutate(p_q2, xvar = fct_relevel(name, x_name, after = Inf))
+p_q2 <- mutate(p_q2, response = factor(response, levels = response_order))
+
+gg <- ggplot(p_q2, aes(y = estimate, x = xvar,
+  colour = model_full, shape = interaction)) +
+  geom_hline(yintercept = 0, lty = 2, col = "grey55") +
+  geom_linerange(aes(ymin = conf.low.25, ymax = conf.high.75),
+    position = position_dodge(width = 0.4), size = 0.85) +
+  geom_linerange(aes(ymin = conf.low, ymax = conf.high),
+    position = position_dodge(width = 0.4), size = 0.35) +
+  geom_point(position = position_dodge(width = 0.4), size = 1.8) +
+  xlab("") +
+  facet_wrap(~response) +
+  ggsidekick::theme_sleek() +
+  coord_flip() +
+  scale_color_manual(values = pal, guide = guide_legend(reverse = TRUE)) +
+  scale_shape_manual(values = c(19, 21)) +
+  labs(colour = "Model", shape = "Interaction", y = "Coefficient value") +
+  guides(shape = FALSE) +
+  theme(legend.position = c(0.8, 0.3))
+
+ggsave("figs/q2-coefs-facets.png", width = 7.2, height = 5.4)
+
+# library(gridExtra)
+# n <- length(p_q2)
+# nCol <- floor(sqrt(n))
+# do.call("grid.arrange", c(p_q2, ncol = nCol))
+# 
+# png("figs/q2-coefs.png", width = 9, height = 8, units = "in", res = 200)
+# do.call("grid.arrange", c(p_q2, ncol = nCol))
+# dev.off()
 ```
 
 Examples:
@@ -627,7 +663,7 @@ out_q3 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without paralle
     max_predictor = 2500)
   dd <- filter(d, !is.na(qmd_all))
   m <- fit_model_oib(dd, sm_oib, predictors = x_vars, iter = 1000,
-    chains = 4)
+    chains = 4, cores = 1)
   list(m = m, d = dd, x = x, y = y)
 }, .parallel = TRUE)
 ```
@@ -650,16 +686,53 @@ for (i in seq_along(out_q3_plot)) {
   # }
 }
 
+newnames_df <- data.frame(
+  name = c(" RdNBR_BL", "qmd_all", "ba_ha", "stems_ha", "redgraygreenstage_ba_p", 
+    " RdNBR_BL:qmd_all", " RdNBR_BL:ba_ha", " RdNBR_BL:stems_ha", 
+    " RdNBR_BL:redgraygreenstage_ba_p"),
+  new.names = c(" RdNBR", "QMD", "Stand basal area", "Stand density", "Pre-fire beetle outbreak severity", 
+    " RdNBR x QMD", " RdNBR x stand basal area", " RdNBR x stand density", 
+    " RdNBR x pre-fire beetle outbreak severity"),
+  stringsAsFactors = FALSE
+)
 
-p_q3 <- lapply(out_q3_plot, function(x) plot_zoib_coefs(x, oib = TRUE))
-library(gridExtra)
-n <- length(p_q3)
-nCol <- floor(sqrt(n))
-do.call("grid.arrange", c(p_q3, ncol = nCol))
+p_q3 <- lapply(out_q3_plot, function(x) 
+  plot_zoib_coefs(x, oib = TRUE, newnames_df = newnames_df, return_df = TRUE))
+p_q3 <- bind_rows(p_q3)
+pal <- RColorBrewer::brewer.pal(3, "Set2")
+x_name <- " RdNBR"
+p_q3 <- mutate(p_q3, xvar = fct_relevel(name, x_name, after = Inf))
+p_q3 <- mutate(p_q3, response = factor(response, levels = response_order))
 
-png("figs/q3-coefs.png", width = 10, height = 8, units = "in", res = 200)
-do.call("grid.arrange", c(p_q3, ncol = nCol))
-dev.off()
+gg <- ggplot(p_q3, aes(y = estimate, x = xvar,
+  colour = model_full, shape = interaction)) +
+  geom_hline(yintercept = 0, lty = 2, col = "grey55") +
+  geom_linerange(aes(ymin = conf.low.25, ymax = conf.high.75),
+    position = position_dodge(width = 0.4), size = 0.85) +
+  geom_linerange(aes(ymin = conf.low, ymax = conf.high),
+    position = position_dodge(width = 0.4), size = 0.35) +
+  geom_point(position = position_dodge(width = 0.4), size = 1.8) +
+  xlab("") +
+  facet_wrap(~response) +
+  ggsidekick::theme_sleek() +
+  coord_flip() +
+  scale_color_manual(values = pal, guide = guide_legend(reverse = TRUE)) +
+  scale_shape_manual(values = c(19, 21)) +
+  labs(colour = "Model", shape = "Interaction", y = "Coefficient value") +
+  guides(shape = FALSE) +
+  theme(legend.position = c(0.8, 0.3))
+
+ggsave("figs/q3-coefs-facets.png", width = 7.2, height = 5.4)
+
+# p_q3 <- lapply(out_q3_plot, function(x) plot_zoib_coefs(x, oib = TRUE))
+# library(gridExtra)
+# n <- length(p_q3)
+# nCol <- floor(sqrt(n))
+# do.call("grid.arrange", c(p_q3, ncol = nCol))
+# 
+# png("figs/q3-coefs.png", width = 10, height = 8, units = "in", res = 200)
+# do.call("grid.arrange", c(p_q3, ncol = nCol))
+# dev.off()
 ```
 
 Examples:
