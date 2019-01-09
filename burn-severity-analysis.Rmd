@@ -147,7 +147,7 @@ aucs_q1_summ %>% group_by(y) %>%
   theme_sleek() +
   labs(fill = "Mean\nAUC\nrank") +
   coord_flip(expand = FALSE)
-ggsave("figs/mean-auc-ranked.png", width = 6.5, height = 3.7)
+ggsave("figs/mean-auc-ranked.pdf", width = 6.5, height = 3.7)
 ```
 
 E.g. ROC:
@@ -163,7 +163,7 @@ make_roc(x$d, a, thresh = thresholds) +
   coord_equal() +
   coord_cartesian(expand = FALSE) +
   geom_abline(intercept = 0, slope = 1, lty = 2, col = "grey50")
-ggsave("figs/roc-example.png", width = 5.5, height = 5, dpi = 200)
+ggsave("figs/roc-example.pdf", width = 5.5, height = 5, dpi = 200)
 ```
 
 ## Figure 2:
@@ -249,7 +249,7 @@ lower_panel <- ggplot(
     inherit.aes = FALSE, col = "grey30")
 
 cowplot::plot_grid(upper_panel, lower_panel, nrow = 2)
-ggsave("figs/fig2.png", width = 8.2, height = 4.5, dpi = 220)
+ggsave("figs/fig2.pdf", width = 8.2, height = 4.5, dpi = 220)
 ```
 
 Fig S1:
@@ -284,7 +284,7 @@ ggplot(
   facet_grid(factor(response, levels = response_order2)~predictor,
     scales = "free_x")
 
-ggsave("figs/figS1.png", width = 9.5, height = 6, dpi = 200)
+ggsave("figs/figS1.pdf", width = 9.5, height = 6, dpi = 200)
 ```
 
 Cross-val. Go-go-gadget 8 cores:
@@ -454,14 +454,14 @@ gg <- ggplot(p_q2, aes(y = estimate, x = xvar,
   guides(shape = FALSE) +
   theme(legend.position = c(0.8, 0.3))
 
-ggsave("figs/q2-coefs-facets.png", width = 7.2, height = 5.4)
+ggsave("figs/q2-coefs-facets.pdf", width = 7.2, height = 5.4)
 
 # library(gridExtra)
 # n <- length(p_q2)
 # nCol <- floor(sqrt(n))
 # do.call("grid.arrange", c(p_q2, ncol = nCol))
 # 
-# png("figs/q2-coefs.png", width = 9, height = 8, units = "in", res = 200)
+# pdf("figs/q2-coefs.pdf", width = 9, height = 8, units = "in", res = 200)
 # do.call("grid.arrange", c(p_q2, ncol = nCol))
 # dev.off()
 ```
@@ -510,7 +510,7 @@ for (j in response_j) {
         type = "zoib")
   }
 }
-# pdf("figs/q2-interaction-ribbons.png", width = 13, height = 10, dpi = 200)
+# pdf("figs/q2-interaction-ribbons.pdf", width = 13, height = 10, dpi = 200)
 # do.call("grid.arrange", c(q2_inter_plots, nrow = length(response_j)))
 # dev.off()
 ```
@@ -568,7 +568,7 @@ g <- ggplot(q2_inter_plots_df, aes(x, est, ymin = lwr, ymax = upr, group = level
   geom_text(data = lets, aes(label = panel), x = -100, y = 0.9,
     inherit.aes = FALSE, col = "grey30")
 
-png("figs/q2-interaction-ribbons.png", width = 9, height = 5.5, units = "in", res = 200)
+pdf("figs/q2-interaction-ribbons.pdf", width = 9, height = 5.5)
 print(g)
 dev.off()
 ```
@@ -727,7 +727,7 @@ gg <- ggplot(p_q3, aes(y = estimate, x = xvar,
   guides(shape = FALSE) +
   theme(legend.position = c(0.8, 0.3))
 
-ggsave("figs/q3-coefs-facets.png", width = 7.2, height = 5.4)
+ggsave("figs/q3-coefs-facets.pdf", width = 7.2, height = 5.4)
 
 # p_q3 <- lapply(out_q3_plot, function(x) plot_zoib_coefs(x, oib = TRUE))
 # library(gridExtra)
@@ -735,7 +735,7 @@ ggsave("figs/q3-coefs-facets.png", width = 7.2, height = 5.4)
 # nCol <- floor(sqrt(n))
 # do.call("grid.arrange", c(p_q3, ncol = nCol))
 # 
-# png("figs/q3-coefs.png", width = 10, height = 8, units = "in", res = 200)
+# pdf("figs/q3-coefs.pdf", width = 10, height = 8)
 # do.call("grid.arrange", c(p_q3, ncol = nCol))
 # dev.off()
 ```
@@ -817,8 +817,7 @@ g <- ggplot(q3_inter_plots_df, aes(x, est, ymin = lwr, ymax = upr,
   geom_text(data = lets, aes(label = panel), x = -100, y = 0.9,
     inherit.aes = FALSE, col = "grey30")
 
-png("figs/q3-interaction-ribbons.png", width = 8, height = 5.5,
-  units = "in", res = 200)
+pdf("figs/q3-interaction-ribbons.pdf", width = 8, height = 5.5)
 print(g)
 dev.off()
 ```
@@ -854,5 +853,5 @@ aucs %>%
   coord_cartesian(xlim = c(0, 0.99), ylim = c(0.82, 0.98), expand = 0) +
   geom_text(data = lets, aes(label = panel), x = 0.1, y = 0.968,
     inherit.aes = FALSE, col = "grey30")
-ggsave("figs/auc-q1-vs-q2.png", width = 8.2, height = 2.5, dpi = 200)
+ggsave("figs/auc-q1-vs-q2.pdf", width = 8.2, height = 2.5, dpi = 200)
 ```
