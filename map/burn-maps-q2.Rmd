@@ -183,7 +183,7 @@ x_ <- -1154000 + 1000
 y_ <- 2364000 + 2000
 size_ <- 4000
 checking_square <- geom_polygon(data = data.frame(x = c(x_, x_ + size_, x_ + size_, x_),
-    y = c(y_, y_, y_ + size_, y_ + size_), response = "RdNBR"), aes_string(x = "x", y = "y"),
+    y = c(y_, y_, y_ + size_, y_ + size_), response = "Charred surface cover"), aes_string(x = "x", y = "y"),
     inherit.aes = FALSE, fill = "grey50", lwd = 1, col = "black")
 
 lets <- data.frame(
@@ -286,7 +286,7 @@ fig <- select(xx, x, y, response, q0.05, q0.50, q0.95) %>%
 g <- cowplot::plot_grid(predictor_plot, fig, ncol = 1, rel_heights = c(1.03, 2.5),
   align = "v", axis = "l")
 
-ggsave(here("map/map-cred2-Q2.png"), width = 3.9, height = 7.9, dpi = 220)
+ggsave(here("map/map-cred2-Q2.pdf"), width = 3.9, height = 7.9)
 
 # library(colorblindr)
 # pdf("cb.pdf", width = 10, height = 10)
@@ -338,7 +338,7 @@ select(xx, x, y, response, pp_est, p0_est, p1_est, q0.50) %>%
   guides(fill = guide_colourbar(barwidth = 0.8, barheight = 3.1)) +
   geom_text(data = lets2, aes(label = panel, x = x, y = y), 
     inherit.aes = FALSE, col = "grey30")
-ggsave(here("map/map-components-Q2.png"), width = 4, height = 7.5, dpi = 200)
+ggsave(here("map/map-components-Q2.pdf"), width = 4, height = 7.5)
 ```
 
 
@@ -443,7 +443,6 @@ g_diff <- diff_dat %>%
   ylab("") +
   labs(fill = "Prop. diff.") +
   ggsidekick::theme_sleek() +
-  
   theme(axis.text = element_blank(), axis.ticks = element_blank()) +
   theme(legend.justification = c(0, 0),
     # strip.text.x = element_blank(),
@@ -454,11 +453,11 @@ g_diff <- diff_dat %>%
   geom_text(data = lets3, aes(label = panel, x = x, y = y),
     inherit.aes = FALSE, col = "grey30") +
   facet_grid(kind~response) +
-  coord_equal()  #+ checking_square 
+  coord_equal()  + checking_square 
 
 gg <- cowplot::plot_grid(predictor_plot, fig, g_diff, ncol = 1, rel_heights = c(1.03, 2.5, 1.03),
   align = "v", axis = "l")
 
-ggsave(here("map/map-cred2-Q2-diff.png"), width = 4, height = 9, dpi = 220)
+ggsave(here("map/map-cred2-Q2-diff.pdf"), width = 4.1, height = 9)
 ```
 
