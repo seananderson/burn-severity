@@ -453,7 +453,7 @@ g_diff <- diff_dat %>%
   geom_text(data = lets3, aes(label = panel, x = x, y = y),
     inherit.aes = FALSE, col = "grey30") +
   facet_grid(kind~response) +
-  coord_equal()  + checking_square 
+  coord_equal()  #+ checking_square 
 
 gg <- cowplot::plot_grid(predictor_plot, fig, g_diff, ncol = 1, rel_heights = c(1.03, 2.5, 1.03),
   align = "v", axis = "l")
