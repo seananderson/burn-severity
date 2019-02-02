@@ -177,7 +177,7 @@ temp_dat <- aucs_q1 %>% filter(x %in% c("dNBR_BL", "RBR_BL", "RdNBR_BL")) %>%
 lets <- data.frame(response = response_order,
   panel =
     paste0("(", letters[seq_along(response_order)], ")"),
-  stringsAsFactors = FALSE, new.names = unique(temp_dat$new.names))
+  stringsAsFactors = TRUE, new.names = response_order)
 
 upper_panel <-
   ggplot(temp_dat, aes(thresh, auc, colour = x)) +
