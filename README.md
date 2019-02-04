@@ -61,9 +61,8 @@ The analysis was run with the following computational environment:
  ctype    en_CA.UTF-8
 
 ─ Packages ──────────────────────────────────────────────────────────────
- package      * version   date       lib source
+ package        version   date       lib source
  broom          0.5.1     2018-12-05 [1] CRAN (R 3.5.0)
- devtools     * 2.0.1     2018-10-26 [1] CRAN (R 3.5.2)
  doParallel     1.0.14    2018-09-24 [1] CRAN (R 3.5.0)
  dplyr          0.7.8     2018-11-10 [1] CRAN (R 3.5.0)
  forcats        0.3.0     2018-02-19 [1] CRAN (R 3.5.0)
