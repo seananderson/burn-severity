@@ -45,6 +45,8 @@ install.packages(pkgs)
 devtools::install_github("seananderson/ggsidekick")
 ```
 
+You will also need to have a C++ toolchain setup to build the Stan models. See <https://github.com/stan-dev/rstan/wiki/RStan-Getting-Started>.
+
 The spatial data extraction (for which the raw data is not included here), also
 required raster, rgdal, dismo, and sp.
 
