@@ -1,0 +1,230 @@
+---
+title: "Q2: Can we improve with easily available GIS data?"
+output: html_document
+---
+
+```{r setup, echo = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "figs-knitr-2/",
+  cache.path = "cache-2/",
+  cache = TRUE,
+  autodep = TRUE
+)
+```
+
+We'll start by loading some packages and reading in a number of functions that
+are included in `zoib-functions.R`:
+
+```{r functions, cache=FALSE, warning=FALSE, message=FALSE, results='hide'}
+library(here)
+source(here("analysis/zoib-functions.R"))
+library("ggplot2")
+library("dplyr")
+library("rstan")
+library("readr")
+library("doParallel")
+library("forcats")
+library("ggsidekick") # devtools::install_github("seananderson/ggsidekick")
+rstan_options(auto_write = TRUE)
+options(mc.cores = 1)
+sm <- stan_model(here("analysis/zoib1re.stan"))
+registerDoParallel(cores = round(parallel::detectCores()))
+file <- here("data", "RockiesBurnSev_clean_20180216.csv")
+iter <- 1000L
+chains <- 4L
+
+var_names <- read.csv(here("data/VariableNames.csv"), 
+  stringsAsFactors = FALSE, strip.white = TRUE) %>%
+  rename(y = old.names)
+response_order <- c(
+  "Basal area killed by fire",
+  "Trees killed by fire",
+  "Bole scorch",
+  "Char height",
+  "Charred surface cover"
+)
+thresholds <- seq(0.05, 0.95, length.out = 5)
+```
+
+```{r fit-all-q2, cache=TRUE}
+x_vars <- c(
+  "RdNBR_BL",
+  "RdNBR_BL",
+  "RdNBR_BL",
+  "RdNBR_BL",
+  "RdNBR_BL"
+)
+extra_x_vars <- paste("xscaled", c("lat", "heatload", "slope", "prenbr"), sep = "*")
+y_vars <- c(
+  "BOLESCORCH",
+  "CHARCOV",
+  "CHARHT_percMax",
+  "Firemort.BA.p",
+  "Firemort.trees.p"
+)
+vars <- data.frame(x = x_vars, y = y_vars, stringsAsFactors = FALSE)
+
+out_q2 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without parallel
+  d <- get_dat(!!quo_name(y), !!quo_name(x),
+    file = file,
+    max_predictor = 2500
+  )
+  d <- d[!is.na(d$prenbr), , drop = FALSE]
+  m <- fit_model(d,
+    model = sm,
+    predictors = c("xscaled", extra_x_vars),
+    iter = iter, chains = chains, cores = 1
+  )
+  list(m = m, d = d, x = x, y = y)
+}, .parallel = TRUE)
+```
+
+```{r, fig.height=9, fig.width=10}
+out_q2_plot <- out_q2
+for (i in seq_along(out_q2_plot)) {
+  out_q2_plot[[i]]$y <- var_names$new.names[var_names$y == out_q2_plot[[i]]$y]
+}
+
+newnames_df <- data.frame(
+  name = c(
+    " RdNBR_BL", " RdNBR_BL:heatload", " RdNBR_BL:lat",
+    " RdNBR_BL:prenbr",
+    " RdNBR_BL:slope", "heatload", "lat", "prenbr", "slope"
+  ),
+  new.names = c(
+    " RdNBR", " RdNBR x heat load", " RdNBR x latitude",
+    " RdNBR x pre-fire NBR",
+    " RdNBR x slope", "Heat load index", "Latitude", "Pre-fire NBR", "Slope"
+  ),
+  stringsAsFactors = FALSE
+)
+
+p_q2 <- lapply(out_q2_plot, function(x)
+  plot_zoib_coefs(x, oib = FALSE, newnames_df = newnames_df, return_df = TRUE))
+p_q2 <- bind_rows(p_q2)
+pal <- RColorBrewer::brewer.pal(3, "Set2")
+x_name <- " RdNBR"
+p_q2 <- mutate(p_q2, xvar = fct_relevel(name, x_name, after = Inf))
+p_q2 <- mutate(p_q2, response = factor(response, levels = response_order))
+
+gg <- ggplot(p_q2, aes(
+  y = estimate, x = xvar,
+  colour = model_full, shape = interaction
+)) +
+  geom_hline(yintercept = 0, lty = 2, col = "grey55") +
+  geom_linerange(aes(ymin = conf.low.25, ymax = conf.high.75),
+    position = position_dodge(width = 0.4), size = 0.85
+  ) +
+  geom_linerange(aes(ymin = conf.low, ymax = conf.high),
+    position = position_dodge(width = 0.4), size = 0.35
+  ) +
+  geom_point(position = position_dodge(width = 0.4), size = 1.8) +
+  xlab("") +
+  facet_wrap(~response) +
+  ggsidekick::theme_sleek() +
+  coord_flip() +
+  scale_color_manual(values = pal, guide = guide_legend(reverse = TRUE)) +
+  scale_shape_manual(values = c(19, 21)) +
+  labs(colour = "Model", shape = "Interaction", y = "Coefficient value") +
+  guides(shape = FALSE) +
+  theme(legend.position = c(0.8, 0.3))
+
+ggsave(here("analysis/figs/q2-coefs-facets.pdf"), width = 7.2, height = 5.4)
+```
+
+All:
+
+```{r}
+.cols <- viridis::plasma(3, end = 0.85) %>% rev()
+quants <- c(0.05, 0.5, 0.95)
+
+inter_vars <- c("lat", "heatload", "slope", "prenbr")
+inter_vars_long <- c("Latitude", "Heat load index", "Slope", "pe-fire NBR")
+vars_i <- seq_along(inter_vars)
+response_j <- seq_along(out_q2)
+q2_inter_plots <- list()
+k <- 0
+for (j in response_j) {
+  for (i in vars_i) {
+    k <- k + 1
+    q2_inter_plots[[k]] <-
+      plot_interaction(out_q2[[j]],
+        int_var = inter_vars[i], int_lab = paste0("\n", inter_vars_long[i]),
+        xlab = gsub("_BL", "", x_vars[[1]]), col = .cols, .quant = quants,
+        title = var_names$new.names[var_names$y == vars$y[[j]]],
+        type = "zoib"
+      )
+  }
+}
+```
+
+```{r}
+.cols <- viridis::plasma(3, end = 0.85) %>% rev()
+quants <- c(0.05, 0.5, 0.95)
+
+inter_vars <- c("lat", "heatload", "slope", "prenbr")
+inter_vars_long <- c("Latitude", "Heat load index", "Slope", "pe-fire NBR")
+vars_i <- seq_along(inter_vars)
+response_j <- seq_along(out_q2)
+q2_inter_plots <- list()
+k <- 0
+for (j in response_j) {
+  for (i in vars_i) {
+    k <- k + 1
+    q2_inter_plots[[k]] <-
+      plot_interaction(out_q2[[j]],
+        int_var = inter_vars[i],
+        int_lab = paste0("\n", inter_vars_long[i]),
+        xlab = gsub("_BL", "", "RdNBR_BL"), col = .cols, .quant = quants,
+        title = var_names$new.names[var_names$y == vars$y[[j]]],
+        type = "zoib", return_data = TRUE
+      )
+    q2_inter_plots[[k]]$interaction <- inter_vars_long[i]
+    q2_inter_plots[[k]]$response <-
+      var_names$new.names[var_names$y == vars$y[[j]]]
+  }
+}
+q2_inter_plots_df <- bind_rows(q2_inter_plots)
+q2_inter_plots_df$level <- as.factor(q2_inter_plots_df$level)
+
+lets <- expand.grid(
+  response = factor(response_order, levels = response_order),
+  interaction = factor(inter_vars_long, levels = sort(inter_vars_long))
+) %>%
+  arrange(interaction, response) %>%
+  mutate(panel = paste0("(", letters[seq_len(n())], ")"))
+
+g <- ggplot(q2_inter_plots_df, aes(x, est,
+  ymin = lwr, ymax = upr, group = level,
+  fill = level
+)) +
+  geom_line(lwd = 1.2, aes(colour = level)) +
+  geom_ribbon(alpha = 0.25) +
+  facet_grid(interaction ~ factor(response, levels = response_order)) +
+  ggsidekick::theme_sleek() +
+  ylab("Proportion") +
+  labs(
+    colour = "Quantile",
+    fill = "Quantile"
+  ) +
+  scale_colour_manual(values = .cols, guide = guide_legend(reverse = TRUE)) +
+  scale_fill_manual(values = .cols, guide = guide_legend(reverse = TRUE)) +
+  scale_y_continuous(breaks = c(seq(0, 0.8, 0.2)), limits = c(0, 1)) +
+  coord_cartesian(expand = FALSE) +
+  theme(
+    legend.justification = c(1, 0), legend.position = c(0.2, 0.8),
+    panel.spacing = unit(-0.05, "lines"),
+    legend.title = element_text(size = rel(0.8))
+  ) +
+  xlab("RdNBR") +
+  geom_text(
+    data = lets, aes(label = panel), x = -100, y = 0.9,
+    inherit.aes = FALSE, col = "grey30"
+  )
+
+pdf(here("analysis/figs/q2-interaction-ribbons.pdf"), width = 9, height = 5.5)
+print(g)
+dev.off()
+```

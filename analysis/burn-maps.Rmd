@@ -1,0 +1,56 @@
+---
+title: "burn-maps"
+author: "Sean Anderson"
+date: '2018-06-20'
+output: html_document
+---
+
+```{r setup, knitr-opts, echo=FALSE, cache=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  warning = TRUE,
+  message = TRUE,
+  comment = "#>",
+  fig.path = "knitr-figs/",
+  cache.path = "knitr-cache/",
+  fig.asp = 0.618,
+  echo = TRUE,
+  autodep = TRUE,
+  cache = TRUE,
+  cache.comments = FALSE
+)
+```
+
+```{r process}
+# see RedRock_FireSeverity_prediction_v2.R
+# # importing RdNBR
+# RdNBR <- raster::raster("RedRockFire_Indices/RR_RdNBR.tif")
+# # importing shapefile for fire perimeter
+# perim <- rgdal::readOGR(dsn = "RedRockFire_Indices", layer = "RR_firePerimeter")
+# 
+# # masking to fire perimeter
+# RdNBR.m <- raster::mask(RdNBR, perim)
+# raster::plot(RdNBR.m)
+# 
+# # creating a point file
+# RdNBR.pt <- raster::rasterToPoints(RdNBR.m, spatial = TRUE)
+# raster::plot(RdNBR.pt)
+# 
+# # Reproject to RasterLayer's CRS - not necessary in this case b/c data all in
+# # same projection
+# # RdNBR.pt2 <- spTransform(RdNBR.pt, CRS(projection(RdNBR.m)))
+# 
+# # creating dataframe with values from RdNBR.pt
+# data <- data.frame(
+#   sp::coordinates(RdNBR.pt),
+#   raster::extract(RdNBR.m, RdNBR.pt, method = "bilinear")
+# )
+# colnames(data) <- c("x", "y", "RdNBR_BL")
+# 
+# readr::write_rds(data, "RedRocks_coords_RdNBR_BL.rds")
+```
+
+```{r check}
+# ggplot(filter(data, RdNBR_BL < 2500), aes(x, y, fill = RdNBR_BL)) + geom_raster()
+```
+

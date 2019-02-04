@@ -1,0 +1,475 @@
+---
+title: "burn-maps"
+author: "Sean Anderson"
+date: '2018-06-20'
+output: html_document
+---
+
+```{r setup, knitr-opts, echo=FALSE, cache=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  warning = TRUE,
+  message = TRUE,
+  comment = "#>",
+  fig.path = "knitr-figs/",
+  cache.path = "knitr-cache/",
+  fig.asp = 0.618,
+  echo = TRUE,
+  autodep = TRUE,
+  cache = TRUE,
+  cache.comments = FALSE
+)
+```
+
+```{r fit, results='hide'}
+library(here)
+source(here("analysis/zoib-functions.R"))
+
+# The following file gets created by
+# `analysis/make-map-data/RedRock_FireSeverity_production_v2.R`
+data <- readr::read_csv(here("data/generated/RedRocks_map_data.csv"))
+data <- dplyr::rename(data, heatload = heatload.in)
+names(data) <- gsub("\\.", "", names(data))
+library(dplyr)
+library(rstan)
+library(readr)
+data <- rename(data, slope = Slope, prenbr = preNBR)
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+sm <- rstan::stan_model(here("analysis/zoib1re.stan"))
+file <- here("data", "RockiesBurnSev_clean_20180216.csv")
+```
+
+# Start by fitting the Q1 models again
+
+```{r fit, results='hide'}
+x_vars <- c(
+  "RdNBR_BL"
+)
+y_vars <- c(
+  "CHARCOV",
+  "Firemort.BA.p")
+vars <- expand.grid(x = x_vars, y = y_vars, stringsAsFactors = FALSE)
+out <- plyr::mlply(.data = vars, function(x, y) {
+  d <- get_dat(!!quo_name(y), !!quo_name(x),
+    file = file, max_predictor = 2500)
+  m <- fit_model(d, model = sm, predictors = "xscaled", iter = 100L,
+    chains = 1L)
+  list(m = m, d = d, x = x, y = y)
+})
+```
+
+```{r extract}
+xx <- purrr::map_df(out, function(x) {
+  pred_dat <- data
+
+  pred_dat <- pred_dat[pred_dat$RdNBR_BL < max(x$d$x)*1, , drop = FALSE]
+  pred_dat <- pred_dat[pred_dat$RdNBR_BL > min(x$d$x)*1, , drop = FALSE]
+  pred_dat$xscaled <- (pred_dat$RdNBR_BL - x$d$xraw_mean[[1]]) / (2 * x$d$xraw_sd[[1]])
+  e <- rstan::extract(x$m$model)
+  
+  mm_pred <- cbind(rep(1, nrow(pred_dat)), pred_dat$xscaled)
+  re_id <- x$d[x$d$group == "rr", "group_id", drop = TRUE][[1]]
+  # pred_p <- plogis(mm_pred %*% t(e$bp_j) +
+  #     rep(e$zp_g[,re_id,drop=TRUE], each = nrow(mm_pred)))
+  mu_inv_logit <- plogis(mm_pred %*% t(e$bp_j) +
+    rep(e$zp_g[,re_id,drop=TRUE], each = nrow(mm_pred)))
+  phi <- e$phi
+  nmcmc <- ncol(mu_inv_logit)
+  # add obs. error:
+  pred_p <- t(apply(mu_inv_logit, 1, function(.x) {
+    rbeta(n = nmcmc,
+    shape1 = .x * phi,
+    shape2 = (1 - .x) * phi)
+  }))
+  pred_0 <- plogis(mm_pred %*% t(e$b0_j) +
+      rep(e$z0_g[,re_id,drop=TRUE], each = nrow(mm_pred)))
+  pred_1 <- plogis(mm_pred %*% t(e$b1_j) +
+      rep(e$z1_g[,re_id,drop=TRUE], each = nrow(mm_pred)))
+  
+  # pred_p <- plogis(mm_pred %*% t(e$bp_j))
+  # pred_0 <- plogis(mm_pred %*% t(e$b0_j))
+  # pred_1 <- plogis(mm_pred %*% t(e$b1_j))
+
+  y_pred <- (1 - pred_0) * (pred_1 + (1 - pred_1) * pred_p)
+
+  pred_df <- data.frame(
+    pp_est = apply(pred_p, 1, quantile, probs = 0.5),
+    p0_est = apply(pred_0, 1, quantile, probs = 0.5),
+    p1_est = apply(pred_1, 1, quantile, probs = 0.5),
+    q0.05 = apply(y_pred, 1, quantile, probs = 0.05),
+    q0.50 = apply(y_pred, 1, quantile, probs = 0.5),
+    q0.95 = apply(y_pred, 1, quantile, probs = 0.95),
+    sd     = apply(y_pred, 1, sd),
+    mean   = apply(y_pred, 1, mean)
+  )
+  pred_df <- mutate(pred_df, ci_width_90 = q0.95 - q0.05)
+
+  stopifnot(nrow(pred_df) == nrow(pred_dat))
+  pred_df$x <- pred_dat$x
+  pred_df$y <- pred_dat$y
+  pred_df$RdNBR_BL <- pred_dat$RdNBR_BL
+  pred_df$response <- x$y
+  pred_df$predictor <- x$x
+  pred_df
+})
+readr::write_rds(xx, here::here("data/generated/RedRocks_predictions.rds"))
+```
+
+# Now for Q2 maps:
+
+```{r}
+x_vars <- c(
+  "RdNBR_BL"
+)
+extra_x_vars <- paste("xscaled", c("lat", "heatload", "slope", "prenbr"), sep = "*")
+y_vars <- c(
+  "CHARCOV",
+  "Firemort.BA.p"
+)
+vars <- data.frame(x = x_vars, y = y_vars, stringsAsFactors = FALSE)
+
+out_q2 <- plyr::mlply(.data = vars, function(x, y) {
+  d <- get_dat(!!quo_name(y), !!quo_name(x),
+    file = file,
+    max_predictor = 2500
+  )
+  d <- d[!is.na(d$prenbr), , drop = FALSE]
+  m <- fit_model(d,
+    model = sm,
+    # predictors = c("xscaled"),
+    predictors = c("xscaled", extra_x_vars),
+    iter = 100L, chains = 1L, adapt_delta = 0.98, seed = 42
+  )
+  list(m = m, d = d, x = x, y = y)
+})
+```
+
+```{r check}
+ggplot(data, aes(x, y, fill = lat)) + geom_raster()
+ggplot(data, aes(x, y, fill = heatload)) + geom_raster()
+ggplot(data, aes(x, y, fill = slope)) + geom_raster()
+ggplot(data, aes(x, y, fill = prenbr)) + geom_raster()
+
+hist(out_q2[[1]]$d$lat)
+hist(out_q2[[1]]$d$heatload)
+hist(out_q2[[1]]$d$slope)
+hist(out_q2[[1]]$d$prenbr)
+```
+
+```{r extract}
+xx <- purrr::map_df(out_q2, function(x) {
+  pred_dat <- data
+  y_var <- x$y
+
+  pred_dat <- pred_dat[pred_dat$RdNBR_BL < max(x$d$x) * 1, , drop = FALSE]
+  pred_dat <- pred_dat[pred_dat$RdNBR_BL > min(x$d$x) * 1, , drop = FALSE]
+  pred_dat$xscaled <- (pred_dat$RdNBR_BL - x$d$xraw_mean[[1]]) / (2 * x$d$xraw_sd[[1]])
+
+  orig_dat <- get_dat(!!quo_name(y_var),
+    main_predictor = !!quo_name(x_vars[[1]]),
+    file = file, scale_other_predictors = FALSE,
+    max_predictor = 2500
+  )
+
+  match_scale <- function(new, orig, variable) {
+    (pred_dat[[variable]] - mean(orig[[variable]], na.rm = TRUE)) /
+      (2 * sd(orig[[variable]], na.rm = TRUE))
+  }
+
+  pred_dat$lat <- match_scale(pred_dat, orig_dat, "lat")
+  pred_dat$heatload <- match_scale(pred_dat, orig_dat, "heatload")
+  pred_dat$slope <- match_scale(pred_dat, orig_dat, "slope")
+  pred_dat$prenbr <- match_scale(pred_dat, orig_dat, "prenbr")
+
+  pred_dat$response <- 999 # fake
+  e <- rstan::extract(x$m$model)
+  prep_dat <- mutate(pred_dat,
+    group = 999, # rake
+    y0 = 1, # fake
+    y1 = 1, # fake
+    yp = 0.5 # fake
+  ) %>%
+    prep_stan_dat(predictors = c("xscaled", extra_x_vars), arrange_by_group = FALSE)
+
+  mm_pred <- prep_dat$stan_dat$Xp_ij # pick any one; all the same
+  re_id <- x$d[x$d$group == "rr", "group_id", drop = TRUE][[1]]
+
+  mu_inv_logit <- plogis(mm_pred %*% t(e$bp_j) +
+    rep(e$zp_g[, re_id, drop = TRUE], each = nrow(mm_pred)))
+  phi <- e$phi
+  nmcmc <- ncol(mu_inv_logit)
+  # add obs. error:
+  pred_p <- t(apply(mu_inv_logit, 1, function(.x) {
+    rbeta(
+      n = nmcmc,
+      shape1 = .x * phi,
+      shape2 = (1 - .x) * phi
+    )
+  }))
+  pred_0 <- plogis(mm_pred %*% t(e$b0_j) +
+    rep(e$z0_g[, re_id, drop = TRUE], each = nrow(mm_pred)))
+  pred_1 <- plogis(mm_pred %*% t(e$b1_j) +
+    rep(e$z1_g[, re_id, drop = TRUE], each = nrow(mm_pred)))
+
+  y_pred <- (1 - pred_0) * (pred_1 + (1 - pred_1) * pred_p)
+
+  pred_df <- data.frame(
+    pp_est = apply(pred_p, 1, quantile, probs = 0.5),
+    p0_est = apply(pred_0, 1, quantile, probs = 0.5),
+    p1_est = apply(pred_1, 1, quantile, probs = 0.5),
+    q0.05 = apply(y_pred, 1, quantile, probs = 0.05),
+    q0.50 = apply(y_pred, 1, quantile, probs = 0.5),
+    q0.95 = apply(y_pred, 1, quantile, probs = 0.95)
+  )
+  pred_df <- mutate(pred_df, ci_width_90 = q0.95 - q0.05)
+
+  stopifnot(nrow(pred_df) == nrow(pred_dat))
+  pred_df$x <- pred_dat$x
+  pred_df$y <- pred_dat$y
+  pred_df$RdNBR_BL <- pred_dat$RdNBR_BL
+  pred_df$response <- x$y
+  pred_df$predictor <- x$x
+  pred_df
+})
+readr::write_rds(xx, here("data/generated/RedRocks_predictions_Q2.rds"))
+```
+
+```{r plot, fig.cap="The predictor"}
+library(scales)
+
+x_ <- -1154000 + 1000
+y_ <- 2364000 + 2000
+size_ <- 4000
+checking_square <- geom_polygon(
+  data = data.frame(
+    x = c(x_, x_ + size_, x_ + size_, x_),
+    y = c(y_, y_, y_ + size_, y_ + size_), response = "Charred surface cover"
+  ), aes_string(x = "x", y = "y"),
+  inherit.aes = FALSE, fill = "grey50", lwd = 1, col = "black"
+)
+
+lets <- data.frame(
+  predictor = "RdNBR",
+  response = c("Basal area killed by fire", "Charred surface cover"),
+  panel =
+    paste0("(", letters[0 + seq_len(2)], ")"),
+  x = max(xx$x) - diff(range(xx$x)) * 0.06,
+  y = max(xx$y) - diff(range(xx$y)) * 0.02,
+  stringsAsFactors = FALSE
+)
+
+lets$panel[lets$panel == "(b)"] <- ""
+
+lets$response <- "RdNBR"
+lets$predictor <- ""
+
+predictor_plot <-
+  xx %>%
+  mutate(response = gsub("Firemort.BA.p", "Basal area killed by fire", response)) %>%
+  mutate(response = gsub("CHARCOV", "Charred surface cover", response)) %>%
+  mutate(predictor = gsub("RdNBR_BL", "RdNBR", predictor)) %>%
+  filter(response == "Basal area killed by fire") %>%
+  mutate(response = "RdNBR") %>%
+  mutate(predictor = "") %>%
+  ggplot(aes(x, y, fill = RdNBR_BL)) +
+  geom_raster() +
+  facet_grid(predictor ~ as.character(response)) +
+  # viridis::scale_fill_viridis(option = "D") +
+  scale_fill_distiller(palette = "Greys") +
+  coord_fixed() +
+  ggsidekick::theme_sleek() +
+  xlab("") + ylab("") +
+  labs(fill = "RdNBR") +
+  geom_text(
+    data = lets, aes(label = panel, x = x, y = y),
+    inherit.aes = FALSE, col = "grey30"
+  ) +
+  theme(
+    legend.justification = c(0, 0),
+    legend.position = c(0, 0),
+    legend.text = element_text(size = 6),
+    legend.title = element_text(size = 8)
+  ) +
+  guides(fill = guide_colourbar(barwidth = 0.8, barheight = 2.4)) +
+  theme(axis.text = element_blank(), axis.ticks = element_blank()) +
+  xlab("") + ylab("") #+ checking_square 
+```
+
+```{r, fig.asp=1, fig.cap="The 5%, 50%, and 95% quantiles of the posterior."}
+lets2 <- data.frame(
+  variable = rep(c(
+    "Predicted 5% quantile",
+    "Predicted median",
+    "Predicted 95% quantile"
+  ), each = 2),
+  response = rep(c("Basal area killed by fire", "Charred surface cover"), 3),
+  panel =
+    paste0("(", letters[1 + seq_len(6)], ")"),
+  x = unique(lets$x),
+  y = unique(lets$y),
+  stringsAsFactors = FALSE
+)
+
+fig <- select(xx, x, y, response, q0.05, q0.50, q0.95) %>%
+  rename(`Predicted 5% quantile` = q0.05, `Predicted 95% quantile` = q0.95, `Predicted median` = q0.50) %>%
+  mutate(response = gsub("Firemort.BA.p", "Basal area killed by fire", response)) %>%
+  mutate(response = gsub("CHARCOV", "Charred surface cover", response)) %>%
+  reshape2::melt(id.vars = c("x", "y", "response")) %>%
+  ggplot(aes(x, y, fill = value)) + geom_raster() +
+  facet_grid(factor(variable, levels = c(
+    "Predicted 5% quantile",
+    "Predicted median",
+    "Predicted 95% quantile"
+  )) ~ response) +
+  coord_fixed() +
+  viridis::scale_fill_viridis(option = "D", limits = c(0, 1), direction = 1) +
+  ggsidekick::theme_sleek() +
+  labs(fill = "Proportion") +
+  theme(
+    legend.justification = c(0, 0),
+    legend.position = c(0, 0),
+    legend.text = element_text(size = 6),
+    legend.title = element_text(size = 8)
+  ) +
+  guides(fill = guide_colourbar(barwidth = 0.8, barheight = 2.4)) +
+  theme(axis.text = element_blank(), axis.ticks = element_blank()) +
+  xlab("") + ylab("") +
+  geom_text(
+    data = lets2, aes(label = panel, x = x, y = y),
+    inherit.aes = FALSE, col = "grey30"
+  ) #+ checking_square
+
+g <- cowplot::plot_grid(predictor_plot, fig,
+  ncol = 1, rel_heights = c(1.03, 2.5),
+  align = "v", axis = "l"
+)
+
+ggsave(here("analysis/figs/map-cred2-Q2.pdf"), width = 3.9, height = 7.9)
+```
+
+```{r, fig.asp=1.2, fig.cap="A breakdown of the components of the final model."}
+comp_levels <- c(
+  "Probability not 0", "Proportion if not 0 or 1",
+  "Probability 1 if y not 0", "Combined proportion estimate"
+)
+
+lets2 <- data.frame(
+  variable = rep(comp_levels, each = 2),
+  response = rep(c("Basal area killed by fire", "Charred surface cover"), 4),
+  panel =
+    paste0("(", letters[0 + seq_len(8)], ")"),
+  x = unique(lets$x),
+  y = unique(lets$y),
+  stringsAsFactors = FALSE
+)
+lets2$variable <- factor(lets2$variable, levels = comp_levels)
+
+select(xx, x, y, response, pp_est, p0_est, p1_est, q0.50) %>%
+  mutate(`Probability not 0` = 1 - p0_est) %>%
+  select(-p0_est) %>%
+  rename(`Proportion if not 0 or 1` = pp_est) %>%
+  rename(`Probability 1 if y not 0` = p1_est) %>%
+  rename(`Combined proportion estimate` = q0.50) %>%
+  reshape2::melt(id.vars = c("x", "y", "response")) %>%
+  mutate(
+    variable =
+      factor(variable,
+        levels = comp_levels
+      )
+  ) %>%
+  mutate(response = gsub("Firemort.BA.p", "Basal area killed by fire", response)) %>%
+  mutate(response = gsub("CHARCOV", "Charred surface cover", response)) %>%
+  ggplot(aes(x, y, fill = value)) + geom_raster() +
+  facet_grid(variable ~ response) +
+  # scale_fill_distiller(palette = "RdBu", limits = c(0, 1)) +
+  viridis::scale_fill_viridis(option = "D", limits = c(0, 1), direction = 1) +
+  # rcartocolor::scale_fill_carto_c(palette = "TealRose", limits = c(0, 1)) +
+  # rcartocolor::scale_fill_carto_c(palette = "Geyser", limits = c(0, 1)) +
+  coord_equal() +
+  ggsidekick::theme_sleek() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank()) +
+  xlab("") + ylab("") +
+  labs(fill = "") +
+  theme(
+    legend.justification = c(0, 0),
+    legend.position = c(0, 0),
+    legend.text = element_text(size = 6),
+    legend.title = element_text(size = 8)
+  ) +
+  guides(fill = guide_colourbar(barwidth = 0.8, barheight = 3.1)) +
+  geom_text(
+    data = lets2, aes(label = panel, x = x, y = y),
+    inherit.aes = FALSE, col = "grey30"
+  )
+ggsave(here("analysis/figs/map-components-Q2.pdf"), width = 4, height = 7.5)
+```
+
+
+```{r}
+q2 <- readr::read_rds(here("map/RedRocks_predictions_Q2.rds"))
+q1 <- readr::read_rds(here("map/RedRocks_predictions.rds"))
+
+q2 <- mutate(q2, version = "Q2") %>%
+  rename(est_q2 = q0.50)
+q1 <- mutate(q1, version = "Q1") %>%
+  rename(est_q1 = q0.50)
+
+diff_dat <- inner_join(
+  select(q1, x, y, est_q1, response),
+  select(q2, x, y, est_q2, response)
+) %>%
+  mutate(diff_50 = qlogis(est_q2) - qlogis(est_q1)) %>%
+  mutate(diff_50_p = est_q2 - est_q1)
+
+lets3 <- data.frame(
+  response = rep(c("Basal area killed by fire", "Charred surface cover"), 1),
+  panel =
+    paste0("(", letters[7 + seq_len(2)], ")"),
+  x = unique(lets$x),
+  y = unique(lets$y),
+  stringsAsFactors = FALSE
+)
+
+fourth_root_power_trans <- function() {
+  scales::trans_new(
+    name = "fourth root power",
+    transform = function(x) ifelse(x > 0, x^0.25, -(-x)^0.25),
+    inverse = function(x) ifelse(x > 0, x^4, -(-x)^4),
+    domain = c(Inf, Inf)
+  )
+}
+
+g_diff <- diff_dat %>%
+  mutate(kind = "Difference (Q2 - Q1)") %>%
+  mutate(response = gsub("Firemort.BA.p", "Basal area killed by fire", response)) %>%
+  mutate(response = gsub("CHARCOV", "Charred surface cover", response)) %>%
+  ggplot(aes(x, y, fill = diff_50_p)) + geom_raster() +
+  scale_fill_gradient2(trans = "fourth_root_power", breaks = c(-0.2, -0.02, 0, 0.02, 0.2)) +
+  coord_fixed() +
+  xlab("") +
+  ylab("") +
+  labs(fill = "Prop. diff.") +
+  ggsidekick::theme_sleek() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank()) +
+  theme(
+    legend.justification = c(0, 0),
+    legend.position = c(0, 0),
+    legend.text = element_text(size = 6),
+    legend.title = element_text(size = 8)
+  ) +
+  guides(fill = guide_colourbar(barwidth = 0.8, barheight = 2.4)) +
+  geom_text(
+    data = lets3, aes(label = panel, x = x, y = y),
+    inherit.aes = FALSE, col = "grey30"
+  ) +
+  facet_grid(kind ~ response) +
+  coord_equal() #+ checking_square 
+
+gg <- cowplot::plot_grid(predictor_plot, fig, g_diff,
+  ncol = 1, rel_heights = c(1.03, 2.5, 1.03),
+  align = "v", axis = "l"
+)
+
+ggsave(here("map/map-cred2-Q2-diff.pdf"), width = 4.1, height = 9)
+```

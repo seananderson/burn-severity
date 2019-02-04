@@ -1,0 +1,336 @@
+---
+title: "Q1: Best simple bivariate models"
+output: html_document
+---
+
+```{r setup, echo = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "figs-knitr/",
+  cache.path = "cache/",
+  cache = TRUE,
+  autodep = TRUE
+)
+```
+
+We'll start by loading some packages and reading in a number of functions that
+are included in `zoib-functions.R`:
+
+```{r functions, cache=FALSE, warning=FALSE, message=FALSE, results='hide'}
+library(here)
+source(here("analysis/zoib-functions.R"))
+library("ggplot2")
+library("dplyr")
+library("rstan")
+library("readr")
+library("doParallel")
+library("ggsidekick") # devtools::install_github("seananderson/ggsidekick")
+rstan_options(auto_write = TRUE)
+# options(mc.cores = parallel::detectCores())
+options(mc.cores = 1)
+sm <- stan_model(here("analysis/zoib1re.stan"))
+registerDoParallel(cores = round(parallel::detectCores()))
+file <- here("data", "RockiesBurnSev_clean_20180216.csv")
+```
+
+# Question 1: best simple bivariate models?
+
+Fit all satellite predictors to all field measure responses:
+
+```{r fit-all-q1, cache=TRUE}
+x_vars <- c(
+  "dNBR",
+  "dNBR_BL",
+  "RdNBR",
+  "RdNBR_BL",
+  "RBR",
+  "RBR_BL"
+)
+y_vars <- c(
+  "Firemort.BA.p",
+  "Firemort.trees.p",
+  "CHARHT_percMax",
+  "BOLESCORCH",
+  "CHARCOV"
+)
+vars <- expand.grid(x = x_vars, y = y_vars, stringsAsFactors = FALSE)
+
+out_q1 <- plyr::mlply(.data = vars, function(x, y) { # or map2() without parallel
+  d <- get_dat(!!quo_name(y), !!quo_name(x),
+    file = file, max_predictor = 2500
+  )
+  m <- fit_model(d,
+    model = sm, predictors = "xscaled", iter = 1000L,
+    chains = 4L
+  )
+  list(m = m, d = d, x = x, y = y)
+}, .parallel = TRUE)
+```
+
+Basic plots for supplement:
+
+```{r}
+var_names <- read.csv(here("data/VariableNames.csv"), 
+  stringsAsFactors = FALSE, strip.white = TRUE) %>%
+  rename(y = old.names)
+response_order <- c(
+  "Basal area killed by fire",
+  "Trees killed by fire",
+  "Bole scorch",
+  "Char height",
+  "Charred surface cover"
+)
+```
+
+Get AUC values:
+
+```{r aucs_q1, warning=FALSE, cache=TRUE, dependson='fit-all-q1'}
+get_loo <- function(x) {
+  log_lik <- loo::extract_log_lik(x, merge_chains = FALSE)
+  rel_eff <- loo::relative_eff(exp(log_lik), cores = 1L)
+  out <- loo::loo.array(log_lik,
+    r_eff = rel_eff,
+    cores = 1L,
+    save_psis = FALSE
+  )
+  out$estimate["looic", "Estimate"]
+}
+
+thresholds <- seq(0.05, 0.95, length.out = 5)
+
+aucs_q1 <- plyr::ldply(out_q1, function(x) {
+  predictions <- make_predictions_dat(model = x$m$model, f = x$m$f, d = x$d)
+  aucs_i <- make_roc(
+    d = x$d, predictions = predictions, return_plot = FALSE,
+    thresh = thresholds
+  )
+  looic <- tryCatch({
+    get_loo(x$m$model)
+  }, error = function(e) NA)
+  b <- broom::tidyMCMC(x$m$model, rhat = TRUE, ess = TRUE)
+  data.frame(
+    x = x$x, y = x$y,
+    auc = aucs_i,
+    thresh = thresholds,
+    auc_mean = mean(aucs_i), auc_lwr = min(aucs_i), auc_upr = max(aucs_i),
+    looic = looic, ess = min(b$ess), rhat = max(b$rhat), stringsAsFactors = FALSE
+  )
+}, .parallel = TRUE)
+```
+
+Plot comparisons:
+
+```{r}
+aucs_q1_summ <- select(aucs_q1, -auc, -thresh) %>% unique()
+g <- ggplot(aucs_q1_summ, aes(y, x)) +
+  viridis::scale_fill_viridis() +
+  xlab("") + ylab("") + theme_sleek() +
+  coord_cartesian(expand = FALSE)
+
+g + geom_tile(aes(fill = auc_mean))
+g + geom_tile(aes(fill = auc_lwr))
+g + geom_tile(aes(fill = auc_upr))
+
+aucs_q1_summ %>%
+  group_by(y) %>%
+  arrange(-auc_mean) %>%
+  ungroup() %>%
+  ggplot(aes(x, auc_mean, ymin = auc_lwr, ymax = auc_upr, colour = auc_mean)) +
+  geom_pointrange() +
+  facet_wrap(~y, scales = "free_x") +
+  viridis::scale_colour_viridis() +
+  xlab("") + ylab("AUC") + theme_sleek() +
+  coord_cartesian(expand = FALSE) +
+  coord_flip()
+```
+
+Ranked within field measurement?
+
+```{r}
+aucs_q1_summ %>%
+  group_by(y) %>%
+  arrange(-auc_mean) %>%
+  mutate(rank = seq_len(n())) %>%
+  group_by(x) %>%
+  mutate(mean_rank = mean(rank)) %>%
+  left_join(var_names) %>%
+  ungroup() %>%
+  mutate(x = gsub("_BL", "-BL", x)) %>%
+  ggplot(aes(
+    factor(new.names, levels = rev(response_order)),
+    forcats::fct_reorder(x, mean_rank)
+  )) +
+  viridis::scale_fill_viridis(direction = -1) +
+  geom_tile(aes(fill = rank)) +
+  xlab("") + ylab("") +
+  theme_sleek() +
+  labs(fill = "Mean\nAUC\nrank") +
+  coord_flip(expand = FALSE)
+ggsave(here("analysis/figs/mean-auc-ranked.pdf"), width = 6.5, height = 3.7)
+```
+
+E.g. ROC:
+
+```{r}
+x <- out_q1[[20]]
+a <- make_predictions_dat(x$m$model, f = x$m$f, d = x$d)
+make_roc(x$d, a, thresh = thresholds) +
+  ggtitle(paste(var_names$new.names[var_names$y == x$y], "/", x$x)) +
+  labs(colour = "Threshold") +
+  xlab("False positive rate") +
+  ylab("True positive rate") +
+  coord_equal() +
+  coord_cartesian(expand = FALSE) +
+  geom_abline(intercept = 0, slope = 1, lty = 2, col = "grey50")
+ggsave(here("analysis/figs/roc-example.pdf"), width = 5.5, height = 5, dpi = 200)
+```
+
+## Figure 2:
+
+```{r}
+temp_dat <- aucs_q1 %>%
+  filter(x %in% c("dNBR_BL", "RBR_BL", "RdNBR_BL")) %>%
+  mutate(x = gsub("_BL", "", x)) %>%
+  left_join(var_names, by = "y") %>%
+  mutate(new.names = factor(new.names, levels = response_order))
+
+lets <- data.frame(
+  response = response_order,
+  panel =
+    paste0("(", letters[seq_along(response_order)], ")"),
+  stringsAsFactors = TRUE, new.names = response_order
+)
+
+upper_panel <-
+  ggplot(temp_dat, aes(thresh, auc, colour = x)) +
+  geom_line(lwd = 1) +
+  facet_wrap(~new.names,
+    scales = "fixed", nrow = 1
+  ) +
+  scale_color_brewer(palette = "Dark2") +
+  # viridis::scale_colour_viridis(discrete = TRUE) +
+  ggsidekick::theme_sleek() +
+  theme_sleek() +
+  labs(colour = "Burn severity index") +
+  xlab("Proportion threshold") + ylab("AUC") +
+  theme(legend.position = c(0.093, 0.26)) +
+  scale_y_continuous(breaks = seq(0.8, 0.95, 0.05)) +
+  theme(strip.text = element_text(size = rel(0.87))) +
+  coord_cartesian(xlim = c(0, 0.99), expand = 0, ylim = c(0.80, 0.98)) +
+  geom_text(
+    data = lets, aes(label = panel), x = 0.1, y = 0.968,
+    inherit.aes = FALSE, col = "grey30"
+  )
+
+dat_q1_pred <-
+  plyr::ldply(out_q1, function(x) {
+    p <- make_predictions(d = x$d, f = x$m$f, model = x$m$model)
+    p$response <- var_names$new.names[var_names$y == x$y]
+    p$predictor <- x$x
+    p
+  }, .parallel = TRUE)
+
+dat_q1_raw <-
+  plyr::ldply(out_q1, function(x) {
+    x$d$response <- var_names$new.names[var_names$y == x$y]
+    x$d$predictor <- x$x
+    x$d
+  }, .parallel = TRUE)
+
+dat_q1_pred$response <- factor(dat_q1_pred$response, levels = response_order)
+dat_q1_pred$new.names <- factor(dat_q1_pred$response, levels = response_order)
+dat_q1_raw$response <- factor(dat_q1_raw$response, levels = response_order)
+dat_q1_raw$new.names <- factor(dat_q1_raw$response, levels = response_order)
+
+lets <- data.frame(
+  new.names = response_order,
+  panel =
+    paste0("(", letters[5 + seq_along(response_order)], ")"),
+  stringsAsFactors = TRUE
+)
+
+lets$new.names <- factor(lets$new.names, levels = response_order)
+
+lower_panel <- ggplot(
+  filter(dat_q1_pred, predictor == "RdNBR_BL"),
+  aes(x, est, ymin = lwr, ymax = upr)
+) +
+  geom_point(
+    data = filter(dat_q1_raw, predictor == "RdNBR_BL"),
+    aes(x, y, group = group), colour = "grey30",
+    inherit.aes = FALSE, alpha = 0.2, size = 0.7
+  ) +
+  geom_line(aes(y = est_re, group = as.factor(group)),
+    col = "grey35", lty = 1, lwd = 0.4, alpha = 0.7
+  ) +
+  geom_line(
+    lwd = 1.5,
+    colour = RColorBrewer::brewer.pal(3, "Dark2")[[3]]
+  ) +
+  geom_ribbon(
+    alpha = 0.3,
+    fill = RColorBrewer::brewer.pal(3, "Dark2")[[3]]
+  ) +
+  ylim(0, 1) +
+  ggsidekick::theme_sleek() +
+  ylab("Proportion") +
+  xlab("Predictor value") +
+  labs(colour = "Fire location") +
+  facet_wrap(~new.names, scales = "fixed", nrow = 1) +
+  # facet_wrap(~response, nrow = 1) +
+  coord_cartesian(expand = FALSE, ylim = c(-0.03, 1.03)) +
+  theme(strip.text = element_text(size = rel(0.87))) +
+  geom_text(
+    data = lets, aes(label = panel), x = -100, y = 0.96,
+    inherit.aes = FALSE, col = "grey30"
+  )
+
+cowplot::plot_grid(upper_panel, lower_panel, nrow = 2)
+ggsave(here("analysis/figs/fig2.pdf"), width = 8.2, height = 4.5, dpi = 220)
+```
+
+Fig S1:
+
+```{r}
+dat_q1_pred2 <- mutate(dat_q1_pred, response = gsub("Basal area killed by fire", "Basal area\\\nkilled by fire", response))
+dat_q1_raw2 <- mutate(dat_q1_raw, response = gsub("Basal area killed by fire", "Basal area\\\nkilled by fire", response))
+
+dat_q1_pred2 <- mutate(dat_q1_pred2, response = gsub("Charred surface cover", "Charred\\\nsurface cover", response))
+dat_q1_raw2 <- mutate(dat_q1_raw2, response = gsub("Charred surface cover", "Charred\\\nsurface cover", response))
+
+response_order2 <- gsub(
+  "Basal area killed by fire",
+  "Basal area\\\nkilled by fire", response_order
+)
+response_order2 <- gsub(
+  "Charred surface cover", "Charred\\\nsurface cover",
+  response_order2
+)
+
+ggplot(
+  filter(dat_q1_pred2),
+  aes(x, est, ymin = lwr, ymax = upr)
+) +
+  geom_point(
+    data = filter(dat_q1_raw2),
+    aes(x, y, group = group), colour = "grey30",
+    inherit.aes = FALSE, alpha = 0.15, size = 0.7
+  ) +
+  geom_line(aes(y = est_re, group = as.factor(group)),
+    col = "grey35", lty = 1, lwd = 0.4, alpha = 0.7
+  ) +
+  geom_line(lwd = 1.5, colour = "red") +
+  geom_ribbon(alpha = 0.2, fill = "red") +
+  ylim(0, 1) +
+  ggsidekick::theme_sleek() +
+  ylab("Proportion") +
+  xlab("Predictor value") +
+  labs(colour = "Fire location") +
+  facet_grid(factor(response, levels = response_order2) ~ predictor,
+    scales = "free_x"
+  )
+
+ggsave(here("analysis/figs/figS1.pdf"), width = 9.5, height = 6, dpi = 200)
+```
+
