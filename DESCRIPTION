@@ -1,16 +1,15 @@
-Package: burnseverity
-Title: TODO
+Type: Research Compendium
+Title: Incorporating biophysical gradients and uncertainty into burn severity
+    maps in a temperate fire-prone forested region
 Version: 0.0.1
 Authors@R:
-    c(person(given = "Sean",
-           family = "Anderson",
-           role = c("aut", "cre"),
-           email = "sean@seananderson.ca"),
-      person(c("TODO", "TODO"), "TODO", role = "aut"),
-      person(c("TODO", "TODO"), "TODO", role = "aut")
-     )
-Description: TODO
-License: MIT + file LICENSE
+    c(person(c("Brian", "J"), "Harvey", role = "aut"),
+      person(c("Robert", "A"), "Andrus", role = "aut"),
+      person(c("Sean", "C"), "Anderson", role = "aut"))
+Description: Code associated with the Ecosphere paper: Incorporating
+    biophysical gradients and uncertainty into burn severity maps in
+    a temperate fire-prone forested region.
+License: MIT + file LICENSE.md
 ByteCompile: true
 Encoding: UTF-8
 LazyData: true

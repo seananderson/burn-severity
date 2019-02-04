@@ -1,6 +1,6 @@
-# MIT License
+# The MIT License (MIT)
 
-Copyright (c) 2019 Sean C. Anderson
+Copyright (c) 2019 Brian J. Harvey, Robert A. Andrus, Sean C. Anderson
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
