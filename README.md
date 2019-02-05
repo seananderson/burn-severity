@@ -1,5 +1,7 @@
 # Code for 'Incorporating biophysical gradients and uncertainty into burn severity maps in a temperate fire-prone forested region'
 
+[![DOI](https://zenodo.org/badge/117417101.svg)](https://zenodo.org/badge/latestdoi/117417101)
+
 This repository contains code associated with the paper:
 
 Harvey, B.J., R.A. Andrus, S.C. Anderson. 2019. Incorporating biophysical
