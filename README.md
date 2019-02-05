@@ -26,7 +26,7 @@ forested region. In press at Ecosphere. <https://doi.org/10.1002/ecs2.2600>
 |  +- 01-burn-severity.Rmd     # analysis for Q1 portion of paper
 |  +- 02-burn-severity.Rmd     # analysis for Q2 portion of paper
 |  +- 03-burn-severity.Rmd     # analysis for Q3 portion of paper
-|  +- 04-burn-severity.Rmd     # code to generate the map figures
+|  +- 04-burn-maps.Rmd         # code to generate the map figures
 |  +- zoib-functions.R         # helper R functions for the analysis
 |  +- zoib1re.stan             # Stan ZOIB model
 |  +- oib1re.stan              # Stan OIB model (model without the zero component)
@@ -45,7 +45,7 @@ In order to run the included code the following R packages are required:
 ```r
 pkgs <- c("dplyr", "ggplot2", "plyr", "reshape2", "readr", "forcats", "here",
   "purrr", "scales", "rstan", "broom", "viridis", "RColorBrewer", "devtools",
-  "doParallel", "cowplot")
+  "doParallel", "cowplot", "rmarkdown")
 install.packages(pkgs)
 devtools::install_github("seananderson/ggsidekick")
 ```
@@ -54,6 +54,15 @@ You will also need to have a C++ toolchain setup to build the Stan models. See <
 
 The spatial data extraction (for which the raw data is not included here), also
 required raster, rgdal, dismo, and sp.
+
+The `.Rmd` files can be run by clicking the 'Knit' button in RStudio for each one or by running in a fresh R session:
+
+```r
+rmarkdown::render("analysis/01-burn-severity.Rmd")
+rmarkdown::render("analysis/02-burn-severity.Rmd")
+rmarkdown::render("analysis/03-burn-severity.Rmd")
+rmarkdown::render("analysis/04-burn-maps.Rmd")
+```
 
 The analysis was run with the following computational environment:
 
