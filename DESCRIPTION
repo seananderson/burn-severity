@@ -1,7 +1,7 @@
 Type: Research Compendium
 Title: Incorporating biophysical gradients and uncertainty into burn severity
     maps in a temperate fire-prone forested region
-Version: 0.0.1
+Version: 1.0.0
 Authors@R:
     c(person(c("Brian", "J"), "Harvey", role = "aut"),
       person(c("Robert", "A"), "Andrus", role = "aut"),
