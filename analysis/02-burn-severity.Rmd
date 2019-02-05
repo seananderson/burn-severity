@@ -31,9 +31,9 @@ rstan_options(auto_write = TRUE)
 options(mc.cores = 1)
 sm <- stan_model(here("analysis/zoib1re.stan"))
 registerDoParallel(cores = round(parallel::detectCores()))
-file <- here("data", "RockiesBurnSev_clean_20180216.csv")
 iter <- 1000L
 chains <- 4L
+file <- here("data", "BurnSeverity.csv")
 
 var_names <- read.csv(here("data/VariableNames.csv"), 
   stringsAsFactors = FALSE, strip.white = TRUE) %>%

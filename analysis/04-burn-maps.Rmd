@@ -34,7 +34,7 @@ data <- dplyr::rename(data, slope = Slope, prenbr = preNBR)
 options(mc.cores = parallel::detectCores())
 rstan_options(auto_write = TRUE)
 sm <- rstan::stan_model(here("analysis/zoib1re.stan"))
-file <- here("data", "RockiesBurnSev_clean_20180216.csv")
+file <- here("data", "BurnSeverity.csv")
 ```
 
 # Start by fitting the Q1 models again

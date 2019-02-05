@@ -4,7 +4,7 @@ rescale <- function(x) {
 }
 
 get_dat <- function(response, main_predictor,
-                    file = "RockiesBurnSev_clean_20180216.csv",
+                    file = "BurnSeverity.csv",
                     scale_other_predictors = TRUE,
                     max_predictor = 2500) {
   response <- enquo(response)
