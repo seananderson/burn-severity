@@ -1,6 +1,6 @@
 # Code for 'Incorporating biophysical gradients and uncertainty into burn severity maps in a temperate fire-prone forested region'
 
-[![DOI](https://zenodo.org/badge/117417101.svg)](https://zenodo.org/badge/latestdoi/117417101)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.2562230.svg)](https://doi.org/10.5281/zenodo.2562230)
 
 This repository contains code associated with the paper:
 
